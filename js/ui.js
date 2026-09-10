@@ -209,7 +209,10 @@ function provenanceLine(app, category, id) {
 
 function card(app, { id, entity, selected, verdict, cost, onPick, extraNote, category }) {
   const { view } = app;
-  const blocked = verdict && !verdict.ok;
+  // `available: false` means the empire is never offered this at all, which is
+  // just as unpickable as failing `possible` - and a search now surfaces those,
+  // so the card must not look clickable.
+  const blocked = verdict && (!verdict.ok || verdict.available === false);
   const unverified = verdict && verdict.unknown.length > 0;
 
   const classes = ['card'];
@@ -241,7 +244,10 @@ function card(app, { id, entity, selected, verdict, cost, onPick, extraNote, cat
 
   if (blocked) {
     const why = verdict.reasons.slice(0, 2).map((r) => reasonText(view, r)).join(' · ');
-    body.append(el('div', { class: 'why' }, why || 'Requirements not met'));
+    body.append(el('div', { class: 'why' },
+      why || (verdict.available === false
+        ? 'Not offered to this kind of empire'
+        : 'Requirements not met')));
   }
   if (unverified) {
     body.append(el('div', { class: 'why warn' },
@@ -333,6 +339,10 @@ function searchHaystack(app, category, id) {
 
 export function invalidateSearchIndex() { haystackCache = null; }
 
+export function isSearching(app, key) {
+  return Boolean((app.search[key] || '').trim());
+}
+
 export function matchesSearch(app, key, view, id, category) {
   const term = (app.search[key] || '').trim().toLowerCase();
   if (!term) return true;
@@ -347,7 +357,7 @@ export function matchesSearch(app, key, view, id, category) {
 // Sections
 // --------------------------------------------------------------------------
 
-function pickableList(app, category, { originsOnly = false } = {}) {
+function pickableList(app, category, { searching = false } = {}) {
   const { view, ctx } = app;
   const out = [];
   for (const [id, entity] of view.cat[category]) {
@@ -357,7 +367,11 @@ function pickableList(app, category, { originsOnly = false } = {}) {
       : category === 'authorities'
         ? app.build.authority === id
         : app.build.civics.has(id);
-    if (!verdict.available && !selected) continue;
+    // Entries the build is not even offered - corporate civics on a democracy,
+    // gestalt civics on a normal empire - are hidden from the picker. A search
+    // is a lookup rather than a pick, so it reaches them too; they render
+    // blocked, saying why.
+    if (!verdict.available && !selected && !searching) continue;
     if (app.hideBlocked && !verdict.ok && !selected) continue;
     out.push({ id, entity, verdict, selected });
   }
@@ -612,7 +626,7 @@ function renderChoice(app, { key, title, category, selectedId, onPick, countLabe
   const { node, grid } = sectionShell(app, {
     key, title, count: countLabel, searchable: true,
   });
-  const items = pickableList(app, category)
+  const items = pickableList(app, category, { searching: isSearching(app, key) })
     .filter((x) => matchesSearch(app, key, view, x.id, category));
   for (const item of items) {
     grid.append(card(app, {
@@ -636,7 +650,7 @@ function renderCivics(app) {
     searchable: true,
   });
 
-  const items = pickableList(app, 'civics')
+  const items = pickableList(app, 'civics', { searching: isSearching(app, 'civics') })
     .filter((x) => matchesSearch(app, 'civics', view, x.id, 'civics'));
 
   const atLimit = budgets.civics.used >= budgets.civics.max;
@@ -694,7 +708,7 @@ function renderSpeciesTraits(app) {
     if (!matchesSearch(app, 'traits', view, id, 'species_traits')) continue;
     const status = rules.traitStatus(entity, ctx);
     const selected = build.traits.has(id);
-    if (!status.available && !selected) continue;
+    if (!status.available && !selected && !isSearching(app, 'traits')) continue;
     if (app.hideBlocked && !status.ok && !selected) continue;
     items.push({ id, entity, status, selected, cost: rules.traitCost(entity) });
   }
@@ -997,7 +1011,7 @@ function renderSecondarySpecies(app) {
     if (!matchesSearch(app, 'secondary', view, id, 'species_traits')) continue;
     const status = rules.traitStatus(entity, secondaryCtx);
     const selected = build.secondary.traits.has(id);
-    if (!status.available && !selected) continue;
+    if (!status.available && !selected && !isSearching(app, 'secondary')) continue;
     if (app.hideBlocked && !status.ok && !selected) continue;
     items.push({ id, entity, status, selected, cost: rules.traitCost(entity) });
   }

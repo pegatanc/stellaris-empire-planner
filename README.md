@@ -52,7 +52,10 @@ actually accept and why. Export a block you can paste straight into your own
   name, the id, the effects and flavour text, the tags, the governance facts and
   **the stat rows** — so "crime" finds the sixteen civics that touch crime, not
   just the eight that happen to say the word in prose. Raw modifier keys work
-  too (`planet_crime_mult`). Every word has to match, so extra words narrow.
+  too (`planet_crime_mult`). Every word has to match, so extra words narrow. A
+  search is a lookup rather than a pick, so it also reaches entries the current
+  empire is never offered — corporate civics on a democracy, gestalt civics on a
+  normal empire — which show up blocked, with the reason.
 - **Find effects** — ask the question backwards. "What in my playset gives
   research speed?" returns every ethic, authority, civic, origin and trait that
   grants it, ranked by how much, with the source mod named. Click a result to

@@ -763,6 +763,19 @@ section('14. filtering searches descriptions, not just names');
 
   check('an empty term matches everything',
     find('', 'civics', civics).length === civics.length);
+
+  // A search is a lookup, not a pick: it has to reach entries the current
+  // empire is never offered, such as corporate civics on a democracy. Those
+  // still render blocked, but they must be findable.
+  const corporate = view.cat.civics.get('civic_indentured_assets');
+  const democratic = makeContext(view, makeBuild({
+    authority: 'auth_democratic', ethics: new Set(['ethic_egalitarian']),
+  }));
+  check('a corporate civic is not offered to a democracy',
+    !evaluate(corporate, democratic).available);
+  app.search.t = 'indentured';
+  check('but a search still matches it',
+    matchesSearch(app, 't', view, 'civic_indentured_assets', 'civics'));
   check('nonsense matches nothing', find('zzzznotathing', 'civics', civics).length === 0);
 
   // Building the index for everything must stay cheap enough to do on demand.
