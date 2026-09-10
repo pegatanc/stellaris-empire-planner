@@ -405,3 +405,10 @@ button { font: inherit; color: inherit; }
 }
 
 .mod-note.warn-note { color: var(--warn); }
+
+.tags { margin-top: 6px; display: flex; flex-direction: column; gap: 4px; }
+.tag-row {
+  font-size: 11px; line-height: 1.4; color: var(--ink-dim);
+  padding-left: 8px; border-left: 2px solid var(--line);
+}
+.card .tag-row { display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden; }

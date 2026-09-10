@@ -245,6 +245,29 @@ section('5. modded requirements evaluate');
     evaluate(direct, ctx({ ethics: new Set(['ethic_egalitarian']) })).ok);
 }
 
+section('5b. a failing OR is described as alternatives, not as "OR"');
+{
+  const view = buildView(db, new Set(['base', '1100284147']));
+  const ctx = makeContext(view, makeBuild({ ethics: new Set(['ethic_militarist']) }));
+  const verdict = evaluate(view.cat.authorities.get('auth_imperial'), ctx);
+  check('imperial is blocked for a plain militarist', !verdict.ok);
+
+  const orClause = verdict.reasons.find((r) => r.branches);
+  check('the OR clause carries its branches', Boolean(orClause),
+    JSON.stringify(verdict.reasons));
+  if (orClause) {
+    check('one branch per alternative', orClause.branches.length === 3,
+      `${orClause.branches.length} branches`);
+    const named = orClause.branches.flat().flatMap((r) => [...r.need, ...r.forbid]);
+    check('names the legendary-leader origin', named.includes('origin_legendary_leader_imperial'), named.join());
+    check('names the authoritarian ethics',
+      named.includes('ethic_authoritarian') && named.includes('ethic_fanatic_authoritarian'),
+      named.join());
+    check('no branch is left undescribed',
+      orClause.branches.every((g) => g.length > 0));
+  }
+}
+
 section('6. lowercase nor/not in Government Variety Pack still evaluate');
 {
   const view = buildView(db, new Set(['base', '2806903835']));

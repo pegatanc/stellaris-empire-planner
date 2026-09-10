@@ -63,6 +63,33 @@ function modifierList(app, entity, { limit = 0 } = {}) {
   return wrap;
 }
 
+/**
+ * The `tags` block. These are the unlocks and special rules the game lists in
+ * the tooltip - Ecocentrist's Waste Recycling and Bio-Processing Plant,
+ * Industrialist's Thermal Borehole, Hive Mind's ascension restrictions. They
+ * are pure prose in the loc data and are not derivable from the modifiers.
+ */
+function tagList(app, entity, { limit = 0 } = {}) {
+  const { view } = app;
+  const tags = arr(entity.data.tags?.__list);
+  if (!tags.length) return null;
+
+  const wrap = el('div', { class: 'tags' });
+  let shown = 0;
+  let hidden = 0;
+  for (const key of tags) {
+    const raw = view.loc(key);
+    if (!raw) continue;
+    const html = renderText(view, raw).replace(/^(?:<br>|\s)+/, '').trim();
+    if (!html) continue;                  // spacers such as NEW_LINE
+    if (limit && shown >= limit) { hidden += 1; continue; }
+    wrap.append(el('div', { class: 'tag-row', html }));
+    shown += 1;
+  }
+  if (hidden) wrap.append(el('div', { class: 'mod-more' }, `+${hidden} more`));
+  return shown ? wrap : null;
+}
+
 /** Election rules, succession and the rest of an authority's governance. */
 function authorityFacts(view, entity) {
   const data = entity.data;
@@ -97,18 +124,51 @@ function reasonNote(view, reason) {
   return /\s/.test(reason.text) ? reason.text : null;
 }
 
+/**
+ * Turn one reason into a phrase. Branch groups come from a failing OR/AND at
+ * the requirement level, where each branch is a whole alternative - EaC's
+ * Imperial authority accepts a legendary-leader origin, OR a fallen-empire
+ * origin, OR an authoritarian ethic.
+ */
+function reasonPhrase(view, reason, depth = 0) {
+  const note = reasonNote(view, reason);
+  if (note && depth > 0) return note;
+
+  if (reason.branches) {
+    // "one of:" already carries the disjunction, so the outermost list reads
+    // better comma-separated; nested ones keep the explicit "or".
+    const joiner = reason.mode === 'any' ? (depth === 0 ? ', ' : ' or ') : ' and ';
+    const parts = reason.branches.map((group) => {
+      const inner = group.map((leaf) => reasonPhrase(view, leaf, depth + 1)).filter(Boolean);
+      if (!inner.length) return '';
+      return inner.length > 1 ? `(${inner.join(' and ')})` : inner[0];
+    }).filter(Boolean);
+    if (!parts.length) return '';
+    const joined = parts.join(joiner);
+    return depth > 0 && parts.length > 1 ? `(${joined})` : joined;
+  }
+
+  if (reason.literal) return reason.need.join(', ');
+  const list = (ids, sep) => ids.map((id) => nameOf(view, id)).join(sep);
+  if (reason.forbid.length) return `not ${list(reason.forbid, ' or ')}`;
+  if (!reason.need.length) return '';
+  return list(reason.need, reason.mode === 'any' ? ' or ' : ' and ');
+}
+
 export function reasonText(view, reason) {
   const note = reasonNote(view, reason);
   if (reason.category === 'disabled') {
     return note ? `Disabled by the mod — ${note}` : 'Disabled by the mod';
   }
   if (note) return note;
-  if (reason.literal) return `Requires ${reason.need.join(', ')}`;
-  const list = (ids) => ids.map((id) => nameOf(view, id)).join(', ');
-  if (reason.forbid.length) return `Conflicts with ${list(reason.forbid)}`;
-  if (!reason.need.length) return `Blocked by ${reason.category}`;
-  if (reason.mode === 'any') return `Requires one of: ${list(reason.need)}`;
-  return `Requires ${list(reason.need)}`;
+
+  const phrase = reasonPhrase(view, reason);
+  if (!phrase) return `Blocked by ${reason.category}`;
+  if (reason.forbid.length && !reason.branches) {
+    return `Conflicts with ${reason.forbid.map((id) => nameOf(view, id)).join(', ')}`;
+  }
+  const anyOf = reason.mode === 'any' || reason.branches;
+  return `${anyOf ? 'Requires one of: ' : 'Requires '}${phrase}`;
 }
 
 // --------------------------------------------------------------------------
@@ -143,6 +203,9 @@ function card(app, { id, entity, selected, verdict, cost, onPick, extraNote }) {
 
   const mods = modifierList(app, entity, { limit: 5 });
   if (mods) body.append(mods);
+
+  const tags = tagList(app, entity, { limit: 2 });
+  if (tags) body.append(tags);
 
   if (blocked) {
     const why = verdict.reasons.slice(0, 2).map((r) => reasonText(view, r)).join(' · ');
@@ -444,7 +507,9 @@ export function fillEthicDetail(app, detail) {
     if (desc) box.append(el('div', { class: 'desc', html: renderText(view, desc) }));
     const mods = modifierList(app, entity);
     if (mods) box.append(mods);
-    else {
+    const tags = tagList(app, entity);
+    if (tags) box.append(tags);
+    if (!mods && !tags) {
       // Ethics and Civics Classic leaves ethic_focused ("Singular Purpose") in
       // the data with no modifiers and nothing referencing it, so it silently
       // eats 3 of your points. Say so instead of leaving the panel blank.

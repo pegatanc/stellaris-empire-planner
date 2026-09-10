@@ -241,6 +241,56 @@ function failingClauses(block, ctx) {
  * "not xenophobe" text next to a required-value list, for instance.
  */
 function describeClause(key, node, ctx) {
+  const op = key.toUpperCase();
+
+  // A failing OR/AND at the requirement level is a set of alternatives, not one
+  // condition. Each branch is described on its own so the message can read
+  // "Requires X, or Y, or Z" instead of "Blocked by OR".
+  if ((op === 'OR' || op === 'AND') && node && typeof node === 'object') {
+    const branches = [];
+    for (const [childKey, raw] of Object.entries(node)) {
+      if (IGNORED_KEYS.has(childKey)) continue;
+      for (const sub of arr(raw)) {
+        const group = describeClause(childKey, sub, ctx);
+        if (group.length) branches.push(group);
+      }
+    }
+    if (branches.length) {
+      return [{
+        category: key,
+        text: node.text || null,
+        need: [],
+        forbid: [],
+        mode: op === 'OR' ? 'any' : 'all',
+        branches,
+      }];
+    }
+  }
+
+  if (op === 'NOT' || op === 'NOR') {
+    // A negated requirement block fails because its contents are TRUE, so there
+    // are no inner failures to describe - report the values you hold that rule
+    // the pick out.
+    const out = [];
+    for (const [childKey, raw] of Object.entries(node || {})) {
+      if (IGNORED_KEYS.has(childKey) || !CATEGORY_SOURCES[childKey]) continue;
+      const have = CATEGORY_SOURCES[childKey](ctx);
+      for (const sub of arr(raw)) {
+        const present = valuesIn(sub).filter((value) => have.has(value));
+        if (present.length) {
+          out.push({
+            category: childKey,
+            text: node?.text || sub?.text || null,
+            need: [],
+            forbid: present,
+            mode: 'none',
+          });
+        }
+      }
+    }
+    if (out.length) return out;
+  }
+
   if (CATEGORY_SOURCES[key]) {
     const have = CATEGORY_SOURCES[key](ctx);
     const out = [];
