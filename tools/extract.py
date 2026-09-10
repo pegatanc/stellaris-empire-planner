@@ -108,7 +108,7 @@ SCAN_DIRS = OrderedDict([
 # Bulky or purely-AI fields. Dropping them keeps the payload sane without
 # touching anything the designer screen actually shows.
 DROP_KEYS = frozenset({
-    "ai_weight", "random_weight", "selectable_weight", "assembly_score",
+    "ai_weight", "selectable_weight", "assembly_score",
     "slave_cost", "ship_lighting", "ship_selection_weight", "ship_kinds",
     "on_gained_effect", "pop_attraction", "country_attraction",
     "pop_attraction_tag", "leader_background_job_weight",
@@ -252,6 +252,26 @@ def expand_inline(block, scripts, params=None, depth=0):
 # Entity extraction
 # --------------------------------------------------------------------------
 
+def slim_random_weight(obj):
+    """Keep only `base` from random_weight.
+
+    That number is what the game rolls against, and it doubles as the rarity
+    tier (5 common / 3 uncommon / 1 rare). The `modifier` sub-blocks alongside
+    it are AI weighting - up to 25 lines each - and are no use here.
+    """
+    weight = obj.get("random_weight")
+    if isinstance(weight, list):
+        weight = weight[0] if weight else None
+    if isinstance(weight, dict):
+        base = weight.get("base")
+        if isinstance(base, str):
+            obj["random_weight"] = base
+            return
+    if isinstance(weight, str):
+        return
+    obj.pop("random_weight", None)
+
+
 def slim_portrait_set(obj):
     """Portrait sets are mostly giant id lists; keep only what a picker needs."""
     portraits = []
@@ -343,6 +363,7 @@ def extract_entities(sources, variables, scripts):
                 data = {}          # ids only; the pools are huge and unused here
             else:
                 data = cw.to_obj(expanded, resolve=variables, drop=DROP_KEYS)
+                slim_random_weight(data)
 
             target = cat
             if cat == "civics" and data.get("is_origin") == "yes":

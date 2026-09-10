@@ -19,6 +19,16 @@ import {
   makeContext, evaluate, computeBudgets, aggregateModifiers, archetypeOf,
 } from '../js/rules.js';
 import { parseEmpireDesigns, serializeEmpire, readEmpire, parseScript } from '../js/empirefile.js';
+import { rollEmpire, FLAVOURS } from '../js/roll.js';
+import { buildIndex, invalidateIndex } from '../js/effects.js';
+
+// The browser modules use document for plain-text extraction of loc strings.
+globalThis.document = {
+  createElement: () => ({
+    set innerHTML(v) { this._v = v; },
+    get textContent() { return String(this._v || '').replace(/<[^>]*>/g, ''); },
+  }),
+};
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const readJSON = (name) => JSON.parse(fs.readFileSync(path.join(ROOT, 'data', `${name}.json`), 'utf8'));
@@ -436,6 +446,107 @@ section('8. empire file round trip');
 
   // The game's own dialect must parse identically.
   check('archetype lookup works', archetypeOf(view, 'LITHOID') === 'LITHOID');
+}
+
+section('10. the random roller only produces legal empires');
+{
+  const rollTemplate = makeBuild();
+  for (const [label, ids] of [
+    ['vanilla', ['base']],
+    ['full playset', db.meta.sources.map((s) => s.id)],
+  ]) {
+    const view = buildView(db, new Set(ids));
+    let invalid = 0;
+    let failed = 0;
+    let overBudget = 0;
+    for (let i = 0; i < 120; i += 1) {
+      const build = rollEmpire(view, rollTemplate, { flavour: 'any' });
+      if (!build) { failed += 1; continue; }
+      const ctx = makeContext(view, build);
+      const problems = [];
+      for (const [cat, id] of [['authorities', build.authority], ['origins', build.origin]]) {
+        const entity = view.cat[cat].get(id);
+        const verdict = entity && evaluate(entity, ctx);
+        if (!entity || !verdict.ok || !verdict.available) problems.push(cat + ':' + id);
+      }
+      for (const id of build.civics) {
+        if (!evaluate(view.cat.civics.get(id), ctx).ok) problems.push('civic:' + id);
+      }
+      for (const id of build.traits) {
+        if (!rules.traitStatus(view.cat.species_traits.get(id), ctx).ok) problems.push('trait:' + id);
+      }
+      const budgets = computeBudgets(view, build, aggregateModifiers(view, build).totals);
+      for (const pool of Object.values(budgets)) if (pool.used > pool.max) overBudget += 1;
+      if (problems.length) invalid += 1;
+    }
+    check(label + ': 120 rolls all validate', invalid === 0, invalid + ' invalid');
+    check(label + ': none over budget', overBudget === 0, overBudget + ' over');
+    check(label + ': none failed to roll', failed === 0, failed + ' returned null');
+  }
+
+  const view = buildView(db, new Set(db.meta.sources.map((s) => s.id)));
+  for (const [key, flavour] of Object.entries(FLAVOURS)) {
+    const build = rollEmpire(view, rollTemplate, { flavour: key });
+    check('flavour "' + flavour.label + '" rolls', Boolean(build));
+    if (!build) continue;
+    if (key === 'gestalt' || key === 'machine') {
+      check('  ' + flavour.label + ' is gestalt', build.ethics.has('ethic_gestalt_consciousness'));
+    }
+    if (key === 'megacorp') {
+      check('  Megacorp is corporate', build.authority === 'auth_corporate', build.authority);
+    }
+    if (key === 'machine') {
+      check('  Machine uses the MACHINE class', build.speciesClass === 'MACHINE', build.speciesClass);
+    }
+  }
+
+  // random_weight = 0 means "never roll this", which is how dozens of civics
+  // and origins opt out. Picking one would be a real deviation from the game.
+  const neverRandom = new Set();
+  for (const [id, ent] of view.cat.civics) if (ent.data.random_weight === '0') neverRandom.add(id);
+  let leaked = 0;
+  for (let i = 0; i < 120; i += 1) {
+    const build = rollEmpire(view, rollTemplate, { flavour: 'any' });
+    for (const id of build.civics) if (neverRandom.has(id)) leaked += 1;
+  }
+  check('weight-0 civics are never rolled (' + neverRandom.size + ' of them)',
+    leaked === 0, leaked + ' leaked');
+}
+
+section('11. the effect index covers every modifier');
+{
+  invalidateIndex();
+  const view = buildView(db, new Set(db.meta.sources.map((s) => s.id)));
+  const app = {
+    view,
+    build: makeBuild(),
+    enabledSources: new Set(db.meta.sources.map((s) => s.id)),
+    sourceName: (id) => id,
+  };
+  const index = buildIndex(app);
+  check('the index is populated', index.size > 400, index.size + ' keys');
+
+  const ctx = makeContext(view, app.build);
+  let missing = 0;
+  for (const cat of ['ethics', 'authorities', 'civics', 'origins', 'species_traits']) {
+    for (const [id, ent] of view.cat[cat]) {
+      const mods = rules.entityModifiers(ent, ctx);
+      for (const m of [...mods.active, ...mods.conditional]) {
+        const entry = index.get(m.key);
+        if (!entry || !entry.providers.some((p) => p.id === id && p.category === cat)) missing += 1;
+      }
+    }
+  }
+  check('every entity modifier appears in the index', missing === 0, missing + ' missing');
+
+  check('research speed is indexed', Boolean(index.get('all_technology_research_speed')));
+  const viaSearch = [...index.values()].find((e) => e.haystack.includes('research speed')
+    && e.providers.some((p) => p.id === 'ethic_fanatic_materialist'));
+  check('Fanatic Materialist shows up under a research search', Boolean(viaSearch));
+
+  const labelled = [...index.values()].filter((e) => e.label && e.label !== e.key);
+  check('most keys resolve to a readable label',
+    labelled.length > index.size * 0.5, labelled.length + ' of ' + index.size);
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

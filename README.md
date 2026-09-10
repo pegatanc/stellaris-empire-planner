@@ -36,6 +36,14 @@ actually accept and why. Export a block you can paste straight into your own
 - **Getting around**: sticky section jump-links that mark which section holds a
   problem, a "hide unavailable" filter that cuts 168 civics to the ~50 you can
   actually take, and a running summary of your picks you can click to remove.
+- **Find effects** — ask the question backwards. "What in my playset gives
+  research speed?" returns every ethic, authority, civic, origin and trait that
+  grants it, ranked by how much, with the source mod named. Click a result to
+  add it to the build.
+- **Roll** — a random empire that is legal by construction, drawn against the
+  `random_weight` values in the game files so the odds match what Stellaris
+  itself would pick (and a weight of 0 correctly means "never"). Filters for
+  Gestalt, Megacorp and Machine. Your names are left alone.
 - **Export** to a playable empire block, a share link (the whole build is in the
   URL — no backend), a Markdown build sheet, or JSON.
 - **Import** from a share link or straight from a block of your saved designs.
@@ -74,6 +82,10 @@ for the load order, then writes `data/*.json` and `icons/sprite.png`. Requires
 Python 3 and Pillow (for the `.dds` icons); no other dependencies. Override the
 paths with `--game` and `--userdir` if your install lives somewhere else.
 
+To work on the site locally, serve it with `python tools/serve.py` rather than
+`python -m http.server` — it sends `no-store`, so an edited module actually
+reloads instead of the browser quietly running the previous one.
+
 Then check nothing regressed:
 
 ```bash
@@ -98,6 +110,11 @@ rather than a sample. It currently reports:
   still raises a flag
 - every blocked pick explains itself — 0 undescribed clauses across 1195
   blocked verdicts
+- 2310 rendered descriptions and tags contain no leftover markup
+
+The roller doubles as a fuzz test for the validator: `verify.mjs` rolls 240
+empires across two toggle sets and asserts every one is legal and inside every
+budget.
 
 ## How the merge works
 
@@ -161,6 +178,9 @@ js/empirefile.js      reading and writing user_empire_designs
 js/main.js            state and wiring
 tools/extract.py      the extractor
 tools/clausewitz.py   Clausewitz parser (run it directly for a self-check)
+js/roll.js            weighted random empire generation
+js/effects.js         reverse modifier index and search
 tools/verify.mjs      behavioural test suite
 tools/audit.mjs       whole-dataset check against the raw game files
+tools/serve.py        no-cache dev server
 ```

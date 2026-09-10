@@ -5,6 +5,8 @@ import * as ui from './ui.js';
 import * as rules from './rules.js';
 import * as exporter from './export.js';
 import { parseEmpireDesigns } from './empirefile.js';
+import { rollEmpire, FLAVOURS } from './roll.js';
+import { effectsPanel, invalidateIndex } from './effects.js';
 import { el, debounce } from './util.js';
 
 const app = {
@@ -224,6 +226,7 @@ app.toggleRulerTrait = (id) => { toggleIn(app.build.rulerTraits, id); rerender()
 
 app.toggleSource = (id) => {
   toggleIn(app.enabledSources, id);
+  invalidateIndex();          // the effect index is per enabled-source set
   rerender({ rail: true });
 };
 app.setSources = (ids) => {
@@ -394,6 +397,8 @@ function wireChrome() {
     app.build = { ...defaultBuild(), ...kept };
     rerender({ rail: true });
   });
+  document.getElementById('btn-roll').addEventListener('click', showRoll);
+  document.getElementById('btn-effects').addEventListener('click', showEffects);
   document.getElementById('btn-validity').addEventListener('click', showIssues);
   document.getElementById('btn-export').addEventListener('click', showExport);
   document.getElementById('btn-save').addEventListener('click', showSave);
@@ -407,6 +412,34 @@ function applyPreset(preset) {
   else if (preset === 'dlc-all') app.build.dlcs = new Set(app.db.options.dlcs.map((d) => d.name));
   else if (preset === 'dlc-none') app.build.dlcs = new Set();
   rerender({ rail: true });
+}
+
+function showEffects() {
+  openModal('Find effects', effectsPanel(app, () => { rerender(); }));
+}
+
+function showRoll() {
+  const status = el('p', {});
+  const body = el('div', {},
+    el('p', {}, 'Rolls a legal empire using the random weights from the game files, so the odds '
+      + 'match what Stellaris itself would pick. Your names are left alone.'),
+    el('div', { class: 'row' }, ...Object.entries(FLAVOURS).map(([key, flavour]) => el('button', {
+      type: 'button',
+      class: key === 'any' ? 'btn btn-primary' : 'btn',
+      onclick: () => {
+        const rolled = rollEmpire(app.view, app.build, { flavour: key });
+        if (!rolled) {
+          status.textContent = `Could not roll a ${flavour.label.toLowerCase()} empire with the mods currently enabled.`;
+          return;
+        }
+        // A roll replaces the picks, never the text you typed.
+        Object.assign(app.build, rolled);
+        rerender();
+        closeModal();
+      },
+    }, flavour.label))),
+    status);
+  openModal('Roll an empire', body);
 }
 
 function showIssues() {

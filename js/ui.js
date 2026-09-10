@@ -349,7 +349,7 @@ function ethicAxes(view) {
 const EXCLUSIVE_ETHIC = 'ethic_gestalt_consciousness';
 
 /** Why this ethic cannot be picked right now, or null. */
-function ethicBlocker(app, entity) {
+export function ethicBlocker(app, entity) {
   const { view, build, budgets } = app;
   const id = entity.id;
   if (build.ethics.has(id)) return null;

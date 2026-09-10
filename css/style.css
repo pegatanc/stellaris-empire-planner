@@ -469,3 +469,37 @@ button { font: inherit; color: inherit; }
 
 @media (max-width: 1200px) { .only-narrow { display: inline-block; } }
 @media (max-width: 860px)  { .only-narrow { display: inline-block; } }
+
+/* ---------- effect search ---------- */
+
+.effect-results { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.effect-group {
+  border: 1px solid var(--line-soft); border-radius: var(--radius);
+  overflow: hidden; background: var(--bg);
+}
+.effect-head {
+  display: flex; align-items: baseline; gap: 10px;
+  padding: 6px 10px; background: var(--bg-3);
+  border-bottom: 1px solid var(--line-soft);
+}
+.effect-name { font-size: 12.5px; font-weight: 600; }
+.effect-count { margin-left: auto; font-size: 10.5px; color: var(--ink-faint); flex: none; }
+.effect-row {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  padding: 5px 10px; background: none; border: 0;
+  border-bottom: 1px solid var(--line-soft);
+  cursor: pointer; text-align: left; font-size: 12px;
+}
+.effect-row:last-child { border-bottom: 0; }
+.effect-row:hover { background: var(--bg-3); }
+.effect-row.blocked { opacity: .5; cursor: not-allowed; }
+.effect-row.picked { background: #14262a; }
+.effect-row.picked .effect-label { color: var(--accent); }
+.effect-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.effect-kind { color: var(--ink-faint); font-size: 10.5px; margin-left: auto; flex: none; }
+.effect-value {
+  flex: none; min-width: 62px; text-align: right;
+  font-variant-numeric: tabular-nums; font-weight: 600;
+}
+.effect-value.pos { color: var(--good); }
+.effect-value.neg { color: var(--bad); }
