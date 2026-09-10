@@ -555,6 +555,16 @@ export function forcedTraits(view, build) {
   return { locked, soft };
 }
 
+/**
+ * A species has exactly one climate preference. The game enforces that in the
+ * engine, not in the data - 78 of the 79 preference traits declare no
+ * `opposites` - so it has to be a rule here. Confirmed against the shipped
+ * empires: none of the 52 prescripted or 18 saved designs carries two.
+ */
+export function isClimatePreference(id) {
+  return /_preference(_|$)/.test(id);
+}
+
 export function traitCost(entity) {
   const cost = entity.data.cost;
   if (cost && typeof cost === 'object') return num(cost.base, 0);
@@ -609,7 +619,14 @@ export function traitStatus(entity, ctx) {
 
   const opposites = arr(data.opposites?.__list).filter((id) => ctx.traits.has(id));
   if (opposites.length) {
-    reasons.push({ category: 'traits', text: null, need: [], forbid: opposites });
+    reasons.push({ category: 'traits', text: null, need: [], forbid: opposites, mode: 'none' });
+  }
+
+  if (isClimatePreference(entity.id)) {
+    const other = [...ctx.traits].filter((id) => id !== entity.id && isClimatePreference(id));
+    if (other.length) {
+      reasons.push({ category: 'traits', text: null, need: [], forbid: other, mode: 'none' });
+    }
   }
 
   return { available: true, ok: reasons.length === 0, reasons, unknown: [...unknown] };
@@ -722,6 +739,29 @@ function archetypeTraitBudget(view, archetype) {
   };
 }
 
+/**
+ * The trait budget for one species. Used for the founding species and again for
+ * the secondary species that Necrophage, Syncretic Evolution, Driven Assimilator
+ * and friends add - it gets its own points off its own archetype.
+ */
+export function speciesTraitBudget(view, speciesClass, traits, modifierTotals) {
+  const bonus = (key) => modifierTotals.get(key) || 0;
+  const archetype = archetypeOf(view, speciesClass);
+  const base = archetypeTraitBudget(view, archetype);
+
+  let used = 0;
+  for (const id of traits) {
+    const trait = view.cat.species_traits.get(id);
+    if (trait) used += traitCost(trait);
+  }
+
+  return {
+    archetype,
+    points: { used, max: base.points + bonus(`${archetype}_species_trait_points_add`) },
+    picks: { used: traits.size ?? traits.length, max: base.picks + bonus(`${archetype}_species_trait_picks_add`) },
+  };
+}
+
 export function computeBudgets(view, build, modifierTotals) {
   const bonus = (key) => modifierTotals.get(key) || 0;
 
@@ -730,14 +770,7 @@ export function computeBudgets(view, build, modifierTotals) {
     ethicsUsed += num(view.cat.ethics.get(id)?.data.cost, 0);
   }
 
-  const archetype = archetypeOf(view, build.speciesClass);
-  const base = archetypeTraitBudget(view, archetype);
-
-  let traitPointsUsed = 0;
-  for (const id of build.traits) {
-    const trait = view.cat.species_traits.get(id);
-    if (trait) traitPointsUsed += traitCost(trait);
-  }
+  const species = speciesTraitBudget(view, build.speciesClass, build.traits, modifierTotals);
 
   return {
     ethics: {
@@ -749,15 +782,46 @@ export function computeBudgets(view, build, modifierTotals) {
       max: num(view.defines.GOVERNMENT_CIVIC_POINTS_BASE, 2)
            + bonus('country_government_civic_points_add'),
     },
-    traitPoints: {
-      used: traitPointsUsed,
-      max: base.points + bonus(`${archetype}_species_trait_points_add`),
-    },
-    traitPicks: {
-      used: build.traits.size,
-      max: base.picks + bonus(`${archetype}_species_trait_picks_add`),
-    },
+    traitPoints: species.points,
+    traitPicks: species.picks,
   };
+}
+
+/**
+ * Some origins and civics add a second species you also design: Necrophage's
+ * prepatents, Syncretic Evolution's proles, Driven Assimilator's cyborgs. The
+ * game declares this with `has_secondary_species`, optionally forcing traits on
+ * it and naming a title for the section.
+ */
+export function secondarySpecies(view, build) {
+  const forced = new Map();
+  const sources = [];
+  let title = null;
+
+  const consider = (entity, id) => {
+    const block = entity?.data?.has_secondary_species;
+    if (!block || typeof block !== 'object') return;
+    sources.push(id);
+    if (!title && typeof block.title === 'string') title = block.title;
+    for (const trait of arr(block.traits?.trait)) forced.set(trait, id);
+  };
+
+  consider(view.cat.origins.get(build.origin), build.origin);
+  for (const id of build.civics) consider(view.cat.civics.get(id), id);
+
+  return { required: sources.length > 0, sources, forced, title };
+}
+
+/** Species classes offered for the secondary slot. */
+export function secondaryClassAllowed(view, entity, ctx) {
+  if (!entity?.data?.archetype) return false;
+  // `possible_secondary` is the same list syntax as `possible`; only MACHINE
+  // declares one, restricting it to Forever Cruise and not Rogue Servitor.
+  if (entity.data.possible_secondary) {
+    const unknown = new Set();
+    if (!evalRequirement(entity.data.possible_secondary, ctx, unknown)) return false;
+  }
+  return true;
 }
 
 /** Build state -> the shape the evaluators expect. */

@@ -549,5 +549,120 @@ section('11. the effect index covers every modifier');
     labelled.length > index.size * 0.5, labelled.length + ' of ' + index.size);
 }
 
+section('12. secondary species');
+{
+  const view = buildView(db, new Set(db.meta.sources.map((s) => s.id)));
+
+  // Which picks bring a second species with them.
+  const necro = makeBuild({ origin: 'origin_necrophage' });
+  const syncretic = makeBuild({ origin: 'origin_syncretic_evolution' });
+  const assimilator = makeBuild({
+    authority: 'auth_machine_intelligence', speciesClass: 'MACHINE',
+    ethics: new Set(['ethic_gestalt_consciousness']),
+    civics: new Set(['civic_machine_assimilator']),
+  });
+  const plain = makeBuild({ origin: 'origin_default' });
+
+  check('Necrophage needs a secondary species', rules.secondarySpecies(view, necro).required);
+  check('Syncretic Evolution needs one', rules.secondarySpecies(view, syncretic).required);
+  check('Driven Assimilator needs one', rules.secondarySpecies(view, assimilator).required);
+  check('a plain empire does not', !rules.secondarySpecies(view, plain).required);
+
+  // Forced traits come across from the declaring entity.
+  const syn = rules.secondarySpecies(view, syncretic);
+  check('Syncretic forces trait_syncretic_proles on it', syn.forced.has('trait_syncretic_proles'),
+    [...syn.forced.keys()].join());
+  const asm = rules.secondarySpecies(view, assimilator);
+  check('Driven Assimilator forces trait_cybernetic', asm.forced.has('trait_cybernetic'),
+    [...asm.forced.keys()].join());
+  check('the section takes its title from the game', Boolean(syn.title), String(syn.title));
+
+  // Its trait budget comes off its own archetype, not the founder's.
+  const bio = rules.speciesTraitBudget(view, 'HUM', new Set(), new Map());
+  const machine = rules.speciesTraitBudget(view, 'MACHINE', new Set(), new Map());
+  check('secondary budget follows its own archetype',
+    bio.points.max === 2 && machine.points.max === 1,
+    'bio ' + bio.points.max + ', machine ' + machine.points.max);
+
+  // MACHINE is only a legal secondary for Forever Cruise, and not with Rogue Servitor.
+  const machineClass = view.cat.species_classes.get('MACHINE');
+  const cruiseCtx = makeContext(view, makeBuild({ origin: 'origin_forever_cruise' }));
+  const plainCtx = makeContext(view, plain);
+  check('possible_secondary gates MACHINE to Forever Cruise',
+    rules.secondaryClassAllowed(view, machineClass, cruiseCtx)
+    && !rules.secondaryClassAllowed(view, machineClass, plainCtx));
+
+  // The roller fills it in when required.
+  // Roll until one lands on a pick that needs a second species, then assert the
+  // roller actually designed it rather than leaving a hole in the export.
+  let sawSecondary = 0;
+  let missingSecondary = 0;
+  for (let i = 0; i < 200; i += 1) {
+    const build = rollEmpire(view, makeBuild(), { flavour: 'any' });
+    if (!build || !rules.secondarySpecies(view, build).required) continue;
+    sawSecondary += 1;
+    if (!build.secondary || !build.secondary.speciesClass) missingSecondary += 1;
+  }
+  check('rolled empires needing a second species always get one',
+    sawSecondary > 0 && missingSecondary === 0,
+    sawSecondary + ' needed one, ' + missingSecondary + ' were missing it');
+
+  // Round trip through the empire file.
+  const payload = {
+    name: 'Necro Test', adjective: 'Necro', shipPrefix: 'NT',
+    speciesClass: 'HUM', speciesName: 'Necro', speciesPlural: 'Necros',
+    speciesAdjective: 'Necro', portrait: 'human', nameList: 'HUMAN1',
+    traits: ['trait_organic', 'trait_necrophage'],
+    ethics: ['ethic_authoritarian'], civics: [], origin: 'origin_necrophage',
+    authority: 'auth_dictatorial', shipset: 'humanoid_01', cityset: 'humanoid_01',
+    planetClass: 'pc_continental', planetName: 'Home', systemName: 'Sol',
+    ruler: { name: 'R', gender: 'not_set', leaderClass: 'official', traits: [] },
+    secondary: {
+      speciesClass: 'MAM', portrait: 'mam5', nameList: 'MAM1',
+      name: 'Prepatent', plural: 'Prepatents', adjective: 'Prepatent',
+      traits: ['trait_organic', 'trait_industrious'],
+    },
+  };
+  const text = serializeEmpire(payload);
+  check('the exported block contains secondary_species', text.includes('secondary_species='));
+  const root = parseScript(text);
+  const back = readEmpire(root.items[0][0], root.items[0][2]);
+  check('secondary species survives the round trip', Boolean(back.secondary), 'missing');
+  if (back.secondary) {
+    check('  its class survives', back.secondary.speciesClass === 'MAM', back.secondary.speciesClass);
+    check('  its name survives', back.secondary.name === 'Prepatent', back.secondary.name);
+    check('  its traits survive',
+      back.secondary.traits.join() === 'trait_organic,trait_industrious',
+      back.secondary.traits.join());
+  }
+
+  // A species has exactly one climate preference - engine-enforced, not in the
+  // data, so the planner has to know it. Nothing shipped by the game breaks it.
+  {
+    const desert = view.cat.species_traits.get('trait_pc_desert_preference');
+    const arcticHeld = makeContext(view, makeBuild({
+      speciesClass: 'HUM', traits: new Set(['trait_pc_arctic_preference']),
+    }));
+    const nonePicked = makeContext(view, makeBuild({ speciesClass: 'HUM' }));
+    check('a second climate preference is blocked',
+      !rules.traitStatus(desert, arcticHeld).ok);
+    check('the first one is fine', rules.traitStatus(desert, nonePicked).ok);
+    check('the rule matches the shipped preference traits',
+      rules.isClimatePreference('trait_pc_desert_preference')
+      && rules.isClimatePreference('trait_pc_gaia_preference_terraforming')
+      && !rules.isClimatePreference('trait_intelligent'));
+  }
+
+  // The user's own saved designs include one; it must not be dropped on import.
+  const designPath = path.join(os.homedir(), 'Documents', 'Paradox Interactive',
+    'Stellaris', 'user_empire_designs_v3.4.txt');
+  if (fs.existsSync(designPath)) {
+    const saved = parseEmpireDesigns(fs.readFileSync(designPath, 'utf8'));
+    const withSecondary = saved.filter((e) => e.secondary);
+    check('saved designs with a secondary species are read back',
+      withSecondary.length > 0, withSecondary.length + ' found');
+  }
+}
+
 console.log(`\n${checks - failures}/${checks} checks passed`);
 process.exit(failures ? 1 : 0);

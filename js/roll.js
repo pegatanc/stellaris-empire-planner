@@ -199,6 +199,56 @@ function attemptRoll(view, template, constraint, rng) {
   const rulerTrait = pickWeighted(rulerOptions, rng);
   if (rulerTrait) build.rulerTraits.add(rulerTrait.id);
 
+  // 7b. If the picks brought a second species with them, design that too.
+  const secondaryInfo = rules.secondarySpecies(view, build);
+  if (secondaryInfo.required) {
+    const baseCtx = ctx();
+    const classes = [...view.cat.species_classes.values()]
+      .filter((entity) => rules.secondaryClassAllowed(view, entity, baseCtx))
+      .filter((entity) => isRandomizable(entity))
+      .map((entity) => ({ id: entity.id, entity, weight: weightOf(entity) }));
+    const chosen = pickWeighted(classes, rng);
+    if (!chosen) return null;
+
+    const secondary = {
+      speciesClass: chosen.id,
+      name: '', plural: '', adjective: '',
+      portrait: '', nameList: build.nameList || 'HUMAN1',
+      traits: new Set(),
+    };
+    for (let guard = 0; guard < 12; guard += 1) {
+      const budget = rules.speciesTraitBudget(
+        view, secondary.speciesClass, secondary.traits, rules.aggregateModifiers(view, build).totals,
+      );
+      if (secondary.traits.size >= budget.picks.max) break;
+      const pointsLeft = budget.points.max - budget.points.used;
+      const secondaryCtx = {
+        ...baseCtx,
+        speciesClass: secondary.speciesClass,
+        archetype: budget.archetype,
+        traits: secondary.traits,
+      };
+      const options = [];
+      for (const [id, entity] of view.cat.species_traits) {
+        if (secondary.traits.has(id) || secondaryInfo.forced.has(id)) continue;
+        if (!rules.traitIsSelectable(entity) || !isRandomizable(entity)) continue;
+        const status = rules.traitStatus(entity, secondaryCtx);
+        if (!status.available || !status.ok) continue;
+        const cost = rules.traitCost(entity);
+        if (cost > pointsLeft) continue;
+        options.push({ id, entity, cost, weight: weightOf(entity) });
+      }
+      const picksLeft = budget.picks.max - secondary.traits.size;
+      const positives = options.filter((o) => o.cost > 0);
+      const pool = positives.length ? positives
+        : (picksLeft >= 2 ? options.filter((o) => o.cost <= 0) : []);
+      const picked = pickWeighted(pool, rng);
+      if (!picked) break;
+      secondary.traits.add(picked.id);
+    }
+    build.secondary = secondary;
+  }
+
   // 8. Homeworld: the origin wins if it dictates one.
   const originEntity = view.cat.origins.get(build.origin);
   const forced = originEntity?.data.starting_colony || originEntity?.data.habitability_preference;

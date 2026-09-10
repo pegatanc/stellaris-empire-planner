@@ -16,6 +16,7 @@ export function toEmpirePayload(app) {
   const forced = rules.forcedTraits(view, build);
   const traits = [...new Set([...forced.locked.keys(), ...forced.soft.keys(), ...build.traits])];
   const government = rules.matchingGovernments(view, app.ctx)[0];
+  const secondaryInfo = rules.secondarySpecies(view, build);
 
   const name = build.name || 'Unnamed Empire';
   // Chain the species fallbacks off the resolved name, not the raw field, or a
@@ -48,6 +49,27 @@ export function toEmpirePayload(app) {
     isNomadic: build.isNomadic,
     ruler: { ...build.ruler, traits: [...build.rulerTraits] },
     flagColors: build.flagColors,
+    // Origins like Necrophage and civics like Driven Assimilator design a second
+    // species too; omitting it would export an incomplete empire.
+    secondary: secondaryInfo.required ? secondaryPayload(view, build, secondaryInfo) : null,
+  };
+}
+
+function secondaryPayload(view, build, info) {
+  const secondary = build.secondary || {};
+  const speciesClass = secondary.speciesClass || 'HUM';
+  const classEntity = view.cat.species_classes.get(speciesClass);
+  const marker = arr(classEntity?.data.trait);
+  const traits = [...new Set([...marker, ...info.forced.keys(), ...(secondary.traits || [])])];
+  const speciesName = secondary.name || 'Secondary';
+  return {
+    speciesClass,
+    portrait: secondary.portrait || '',
+    nameList: secondary.nameList || 'HUMAN1',
+    name: speciesName,
+    plural: secondary.plural || speciesName,
+    adjective: secondary.adjective || speciesName,
+    traits,
   };
 }
 
@@ -84,6 +106,7 @@ export function encodeBuild(app) {
     gs: build.shipset, pc: build.planetClass, pn: build.planetName, sy: build.systemName,
     e: [...build.ethics], au: build.authority, c: [...build.civics], o: build.origin,
     t: [...build.traits], rt: [...build.rulerTraits],
+    s2: build.secondary ? { ...build.secondary, traits: [...build.secondary.traits] } : null,
     r: build.ruler, rm: build.room, av: build.advisorVoice,
     m: [...app.enabledSources],
   };
@@ -121,6 +144,9 @@ export function applyEncoded(app, payload) {
   build.civics = new Set(payload.c || []);
   build.traits = new Set(payload.t || []);
   build.rulerTraits = new Set(payload.rt || []);
+  if (payload.s2) {
+    build.secondary = { ...payload.s2, traits: new Set(payload.s2.traits || []) };
+  }
   if (payload.r) build.ruler = { ...build.ruler, ...payload.r, traits: undefined };
   if (payload.d) build.dlcs = new Set(payload.d);
   if (payload.m) app.setSources(new Set(payload.m));

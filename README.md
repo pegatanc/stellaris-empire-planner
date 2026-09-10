@@ -32,6 +32,12 @@ actually accept and why. Export a block you can paste straight into your own
   and term, succession, mandates, agendas). The `tags` block is rendered too -
   that is where the game keeps unlocks the modifiers cannot express, like
   Ecocentrist's Waste Recycling or Industrialist's Thermal Borehole.
+- **Secondary species.** Necrophage, Syncretic Evolution, Forever Cruise and
+  civics like Driven Assimilator, Rogue Servitor and Bodysnatcher design a
+  second species too. When the build calls for one, a section appears under the
+  game's own title for it — "Prepatent Species", "Cyborg Species" — with its own
+  class, names, portrait and trait budget off its own archetype, the traits the
+  civic forces on it locked in, and `secondary_species` written into the export.
 - **Live modifier totals** across ethics, authority, origin, civics and traits.
 - **Getting around**: sticky section jump-links that mark which section holds a
   problem, a "hide unavailable" filter that cuts 168 civics to the ~50 you can
@@ -152,6 +158,10 @@ filename.
   legacy keys undecided. The extractor infers each key's kind from the values the
   game actually ships. If a number ever looks off by 100×, that table is the
   place to look.
+- **A species gets exactly one climate preference.** The game enforces that in
+  the engine, not the data — 78 of the 79 preference traits declare no
+  `opposites` — so the planner carries it as an explicit rule. Verified against
+  every shipped empire: none of the 52 prescripted or 18 saved designs breaks it.
 - Data is a snapshot of one install. Re-run the extractor when things change.
 
 ## Assets and attribution

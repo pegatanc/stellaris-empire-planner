@@ -109,6 +109,11 @@ function defaultBuild() {
     origin: 'origin_default',
     traits: new Set(),
     rulerTraits: new Set(),
+    // Only used when the origin or a civic declares has_secondary_species.
+    secondary: {
+      speciesClass: '', name: '', plural: '', adjective: '',
+      portrait: '', nameList: '', traits: new Set(),
+    },
     ruler: { name: '', gender: 'not_set', title: '', titleFemale: '', leaderClass: 'official', portrait: '' },
     flagColors: ['blue', 'black', 'null', 'null'],
     dlcs: new Set(app.db.options.dlcs.map((d) => d.name)),
@@ -221,6 +226,19 @@ app.setEthicHover = (id) => {
 
 const toggleIn = (set, id) => (set.has(id) ? set.delete(id) : set.add(id));
 app.toggleCivic = (id) => { toggleIn(app.build.civics, id); rerender(); };
+app.toggleSecondaryTrait = (id) => { toggleIn(app.build.secondary.traits, id); rerender(); };
+app.setSecondarySpeciesClass = (value) => {
+  app.build.secondary.speciesClass = value;
+  // Traits are archetype-gated, so drop any the new class cannot take.
+  const ctx = rules.makeContext(app.view, app.build);
+  for (const id of [...app.build.secondary.traits]) {
+    const trait = app.view.cat.species_traits.get(id);
+    const status = trait && rules.traitStatus(trait, { ...ctx, speciesClass: value,
+      archetype: rules.archetypeOf(app.view, value) });
+    if (!status || !status.available) app.build.secondary.traits.delete(id);
+  }
+  rerender();
+};
 app.toggleTrait = (id) => { toggleIn(app.build.traits, id); rerender(); };
 app.toggleRulerTrait = (id) => { toggleIn(app.build.rulerTraits, id); rerender(); };
 
@@ -278,6 +296,27 @@ app.issues = () => {
     const status = rules.traitStatus(entity, ctx);
     if (!status.ok) {
       out.push({ kind: 'error', section: 'traits', label: label(id), text: describe(view, status.reasons) });
+    }
+  }
+
+  // The secondary species has its own budget and its own gating.
+  const secondary = rules.secondarySpecies(view, build);
+  if (secondary.required) {
+    if (!build.secondary.speciesClass) {
+      out.push({ kind: 'error', section: 'secondary', label: 'Secondary species',
+        text: 'your origin or civics add a second species - pick its class' });
+    } else {
+      const secondaryBudget = rules.speciesTraitBudget(
+        view, build.secondary.speciesClass, build.secondary.traits, app.modifiers.totals,
+      );
+      if (secondaryBudget.points.used > secondaryBudget.points.max) {
+        out.push({ kind: 'error', section: 'secondary', label: 'Secondary trait points',
+          text: `over budget: ${secondaryBudget.points.used} of ${secondaryBudget.points.max}` });
+      }
+      if (secondaryBudget.picks.used > secondaryBudget.picks.max) {
+        out.push({ kind: 'error', section: 'secondary', label: 'Secondary trait picks',
+          text: `over budget: ${secondaryBudget.picks.used} of ${secondaryBudget.picks.max}` });
+      }
     }
   }
 
@@ -611,6 +650,31 @@ function applyEmpire(empire) {
   const forced = rules.forcedTraits(view, build);
   build.traits = new Set(empire.traits.filter((id) => !forced.locked.has(id)));
   build.rulerTraits = new Set(empire.ruler.traits);
+
+  // Necrophage, Syncretic Evolution, Driven Assimilator and friends carry a
+  // second designed species; dropping it would silently lose half the empire.
+  const secondaryInfo = rules.secondarySpecies(view, build);
+  if (empire.secondary) {
+    const classEntity = view.cat.species_classes.get(empire.secondary.speciesClass);
+    const marker = new Set(Array.isArray(classEntity?.data.trait)
+      ? classEntity.data.trait : [classEntity?.data.trait].filter(Boolean));
+    build.secondary = {
+      speciesClass: empire.secondary.speciesClass,
+      name: empire.secondary.name,
+      plural: empire.secondary.plural,
+      adjective: empire.secondary.adjective,
+      portrait: empire.secondary.portrait,
+      nameList: empire.secondary.nameList,
+      traits: new Set(empire.secondary.traits.filter(
+        (id) => !marker.has(id) && !secondaryInfo.forced.has(id),
+      )),
+    };
+  } else if (!secondaryInfo.required) {
+    build.secondary = {
+      speciesClass: '', name: '', plural: '', adjective: '',
+      portrait: '', nameList: '', traits: new Set(),
+    };
+  }
   build.ruler = {
     name: empire.ruler.name,
     gender: empire.ruler.gender || 'not_set',

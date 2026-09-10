@@ -819,6 +819,139 @@ function portraitOptions(view, speciesClass) {
   return [...chosen].sort();
 }
 
+/**
+ * The second species Necrophage, Syncretic Evolution, Driven Assimilator and
+ * friends bring with them. Only rendered when something in the build asks for
+ * one; it gets its own class, names and trait budget.
+ */
+function renderSecondarySpecies(app) {
+  const { view, build } = app;
+  const info = rules.secondarySpecies(view, build);
+  const section = el('section', { class: 'section' });
+
+  if (!info.required) {
+    section.append(el('div', { class: 'section-head' }, el('h2', {}, 'Secondary species')),
+      el('p', { class: 'hint' },
+        'Nothing in this build adds a second species. Origins like Necrophage or '
+        + 'Syncretic Evolution, and civics like Driven Assimilator or Rogue Servitor, do.'));
+    return section;
+  }
+
+  const heading = info.title ? plainText(view, view.loc(info.title)) || 'Secondary species'
+    : 'Secondary species';
+  const from = info.sources.map((id) => nameOf(view, id)).join(', ');
+
+  const ctx = app.ctx;
+  const classes = [...view.cat.species_classes.values()]
+    .filter((entity) => rules.secondaryClassAllowed(view, entity, ctx))
+    .filter((entity) => rules.evaluate(entity, ctx).available || entity.id === build.secondary.speciesClass)
+    .sort((a, b) => nameOf(view, a.id).localeCompare(nameOf(view, b.id)));
+
+  if (!build.secondary.speciesClass && classes.length) {
+    build.secondary.speciesClass = classes[0].id;
+  }
+
+  const budget = rules.speciesTraitBudget(
+    view, build.secondary.speciesClass, build.secondary.traits, app.modifiers.totals,
+  );
+
+  section.append(el('div', { class: 'section-head' },
+    el('h2', {}, heading),
+    el('span', { class: 'count' },
+      `${budget.points.used} / ${budget.points.max} points · ${budget.picks.used} / ${budget.picks.max} picks`),
+    el('span', { class: 'count' }, `added by ${from}`)));
+
+  const portraits = portraitOptions(view, build.secondary.speciesClass);
+  if (portraits.length && !portraits.includes(build.secondary.portrait)) {
+    build.secondary.portrait = portraits[0];
+  }
+  const nameLists = [...view.cat.name_lists.keys()].sort();
+  if (nameLists.length && !nameLists.includes(build.secondary.nameList)) {
+    build.secondary.nameList = nameLists.includes('HUMAN1') ? 'HUMAN1' : nameLists[0];
+  }
+
+  section.append(el('div', { class: 'field-grid' },
+    selectField(app, 'Species class', 'speciesClass',
+      classes.map((entity) => ({ value: entity.id, label: `${nameOf(view, entity.id)} — ${entity.data.archetype}` })),
+      (value) => app.setSecondarySpeciesClass(value),
+      { target: build.secondary }),
+    textField(app, 'Species name', 'name', { placeholder: 'Prepatent', target: build.secondary }),
+    textField(app, 'Species plural', 'plural', { placeholder: 'Prepatents', target: build.secondary }),
+    textField(app, 'Species adjective', 'adjective', { placeholder: 'Prepatent', target: build.secondary }),
+    selectField(app, 'Name list', 'nameList',
+      nameLists.map((id) => ({ value: id, label: nameOf(view, id) })),
+      (value) => { build.secondary.nameList = value; app.rerender(); },
+      { target: build.secondary }),
+    selectField(app, 'Portrait', 'portrait',
+      portraits.map((id) => ({ value: id, label: id })),
+      (value) => { build.secondary.portrait = value; app.rerender(); },
+      { target: build.secondary })));
+
+  if (info.forced.size) {
+    const chips = el('div', { class: 'card-grid' });
+    for (const [id, source] of info.forced) {
+      const entity = view.cat.species_traits.get(id);
+      if (!entity) continue;
+      chips.append(card(app, {
+        id, entity, selected: true, cost: 0,
+        verdict: { ok: true, unknown: [], reasons: [] },
+        extraNote: `granted by ${nameOf(view, source)} (locked)`,
+        onPick: () => {},
+      }));
+    }
+    if (chips.children.length) {
+      section.append(el('p', { class: 'hint' }, 'Granted automatically:'), chips);
+    }
+  }
+
+  // Traits are gated on the secondary species own class, not the founder's.
+  const secondaryCtx = {
+    ...ctx,
+    speciesClass: build.secondary.speciesClass,
+    archetype: budget.archetype,
+    traits: build.secondary.traits,
+  };
+  const grid = el('div', { class: 'card-grid' });
+  const items = [];
+  for (const [id, entity] of view.cat.species_traits) {
+    if (info.forced.has(id)) continue;
+    if (!rules.traitIsSelectable(entity)) continue;
+    if (!matchesSearch(app, 'secondary', view, id)) continue;
+    const status = rules.traitStatus(entity, secondaryCtx);
+    const selected = build.secondary.traits.has(id);
+    if (!status.available && !selected) continue;
+    if (app.hideBlocked && !status.ok && !selected) continue;
+    items.push({ id, entity, status, selected, cost: rules.traitCost(entity) });
+  }
+  items.sort((a, b) => Number(b.selected) - Number(a.selected)
+    || Number(!a.status.ok) - Number(!b.status.ok)
+    || b.cost - a.cost
+    || nameOf(view, a.id).localeCompare(nameOf(view, b.id)));
+
+  const pickRoom = budget.picks.used < budget.picks.max;
+  for (const item of items) {
+    let verdict = item.status;
+    if (!item.selected && verdict.ok
+        && (!pickRoom || (item.cost > 0 && budget.points.used + item.cost > budget.points.max))) {
+      verdict = { ...verdict, ok: false, reasons: [] };
+    }
+    const node = card(app, {
+      id: item.id, entity: item.entity, selected: item.selected,
+      verdict, cost: item.cost,
+      onPick: () => app.toggleSecondaryTrait(item.id),
+    });
+    if (!item.selected && item.status.ok && !verdict.ok) {
+      const why = node.querySelector('.why');
+      const text = pickRoom ? 'Not enough trait points' : 'No trait picks left';
+      if (why) why.textContent = text;
+      else node.querySelector('.body').append(el('div', { class: 'why' }, text));
+    }
+    grid.append(node);
+  }
+  section.append(grid);
+  return section;
+}
+
 function renderHomeworld(app) {
   const { view, build } = app;
   const origin = view.cat.origins.get(build.origin);
@@ -940,6 +1073,7 @@ export const SECTIONS = [
   ['origin', 'Origin'],
   ['civics', 'Civics'],
   ['traits', 'Traits'],
+  ['secondary', 'Secondary'],
   ['homeworld', 'Homeworld'],
   ['ruler', 'Ruler'],
   ['rulerTraits', 'Ruler traits'],
@@ -962,6 +1096,7 @@ export function renderMain(app) {
     })],
     ['civics', renderCivics(app)],
     ['traits', renderSpeciesTraits(app)],
+    ['secondary', renderSecondarySpecies(app)],
     ['homeworld', renderHomeworld(app)],
     ['ruler', renderRuler(app)],
     ['rulerTraits', renderRulerTraits(app)],

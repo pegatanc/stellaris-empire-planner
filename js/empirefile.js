@@ -137,6 +137,7 @@ export function readEmpire(name, node) {
     portrait: '',
     nameList: '',
     traits: [],
+    secondary: null,
     ruler: {
       name: '', gender: '', portrait: '', title: '', titleFemale: '',
       leaderClass: '', traits: [],
@@ -151,6 +152,19 @@ export function readEmpire(name, node) {
     empire.speciesPlural = textOf(first(species, 'species_plural') ?? first(species, 'plural'));
     empire.speciesAdjective = textOf(first(species, 'species_adjective') ?? first(species, 'adjective'));
     empire.traits = every(species, 'trait').filter((v) => typeof v === 'string');
+  }
+
+  const secondary = first(node, 'secondary_species');
+  if (secondary) {
+    empire.secondary = {
+      speciesClass: first(secondary, 'class') || '',
+      portrait: first(secondary, 'portrait') || '',
+      nameList: first(secondary, 'name_list') || '',
+      name: textOf(first(secondary, 'species_name') ?? first(secondary, 'name')),
+      plural: textOf(first(secondary, 'species_plural') ?? first(secondary, 'plural')),
+      adjective: textOf(first(secondary, 'species_adjective') ?? first(secondary, 'adjective')),
+      traits: every(secondary, 'trait').filter((v) => typeof v === 'string'),
+    };
   }
 
   if (ruler) {
@@ -209,6 +223,21 @@ export function serializeEmpire(build) {
   s('gender=not_set');
   for (const trait of build.traits) s(`trait=${quote(trait)}`);
   out.push(`${TAB}}`);
+
+  if (build.secondary) {
+    const sec = build.secondary;
+    out.push(`${TAB}secondary_species=`, `${TAB}{`);
+    const w = (line) => out.push(TAB + TAB + line);
+    w(`class=${quote(sec.speciesClass)}`);
+    w(`portrait=${quote(sec.portrait || '')}`);
+    out.push(...locBlock(2, 'species_name', sec.name));
+    out.push(...locBlock(2, 'species_plural', sec.plural));
+    out.push(...locBlock(2, 'species_adjective', sec.adjective));
+    w(`name_list=${quote(sec.nameList || 'HUMAN1')}`);
+    w('gender=not_set');
+    for (const trait of sec.traits) w(`trait=${quote(trait)}`);
+    out.push(`${TAB}}`);
+  }
 
   out.push(...locBlock(1, 'name', name));
   out.push(...locBlock(1, 'adjective', build.adjective || name));
