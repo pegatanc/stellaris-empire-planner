@@ -301,15 +301,27 @@ def extract_entities(sources, variables, scripts):
     # Global load order: source order first, then filename order within a source.
     rel_index = {rel: i for i, rel in enumerate(sorted(rel_paths))}
 
+    # Parse everything first. Data files define their own @variables inline -
+    # common/species_archetypes/00_species_archetypes.txt sets @machine_trait_points
+    # at the top of the same file it uses it in - so the variable table has to be
+    # complete before any value is resolved.
+    blocks = []
     for src_index, relpath, cat, path in parsed_files:
         src_id = sources[src_index]["id"]
-        ordinal = src_index * 1_000_000 + rel_index[relpath]
         try:
             block = cw.parse(read_text(path))
         except Exception as exc:  # noqa: BLE001 - one bad file must not kill the run
             print(f"  ! parse failed {relpath} ({src_id}): {exc}")
             stats["parse_errors"] += 1
             continue
+        for key, _op, val in block.items:
+            if key.startswith("@") and isinstance(val, str):
+                variables.setdefault(key, val)
+        blocks.append((src_index, relpath, cat, block))
+
+    for src_index, relpath, cat, block in blocks:
+        src_id = sources[src_index]["id"]
+        ordinal = src_index * 1_000_000 + rel_index[relpath]
 
         # Last definition of a key inside one file wins (EaC declares
         # civic_corporate_sovereign_guardianship twice).
@@ -531,12 +543,23 @@ def extract_options(sources, game_dir):
         blk = cw.parse(read_text(colors_file))
         colors = [k for k, _op, v in blk.items if isinstance(v, cw.Block)]
 
+    # host_has_dlc compares against the `name` in each dlc_metadata file.
+    dlcs = []
+    dlc_root = Path(game_dir) / "dlc"
+    if dlc_root.is_dir():
+        for meta_file in sorted(dlc_root.glob("*/dlc_metadata/*.dlc")):
+            blk = cw.parse(read_text(meta_file))
+            name = blk.get("name")
+            if isinstance(name, str):
+                dlcs.append({"id": meta_file.stem, "name": name})
+
     return {
         "rooms": sorted(rooms),
         "advisor_voices": sorted(voices),
         "prescripted_name_lists": sorted(name_lists),
         "flag_categories": flags,
         "flag_colors": colors,
+        "dlcs": dlcs,
     }
 
 
