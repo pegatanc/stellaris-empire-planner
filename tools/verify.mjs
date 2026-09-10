@@ -713,9 +713,11 @@ section('13. modifier colour follows the effect, not the sign');
 section('14. filtering searches descriptions, not just names');
 {
   const view = buildView(db, new Set(db.meta.sources.map((s) => s.id)));
+  const appBuild = makeBuild();
   const app = {
     view,
-    build: makeBuild(),
+    build: appBuild,
+    ctx: makeContext(view, appBuild),
     enabledSources: new Set(db.meta.sources.map((s) => s.id)),
     search: {},
     sourceName: (id) => id,
@@ -738,6 +740,21 @@ section('14. filtering searches descriptions, not just names');
   const traits = [...view.cat.species_traits.keys()];
   const lifespan = find('lifespan', 'species_traits', traits);
   check('trait descriptions are searched', lifespan.includes('trait_enduring'), lifespan.join());
+
+  // Stat rows count as searchable text too: most civics that do something to
+  // crime never say the word in their description, only in a Crime modifier.
+  const crime = find('crime', 'civics', civics);
+  check('finds civics whose only mention of crime is a stat',
+    crime.includes('civic_genetic_identification') && crime.includes('civic_state_monopoly'),
+    crime.length + ' matched');
+  check('searching a stat name beats searching descriptions alone',
+    crime.length > 12, crime.length + ' matched');
+  check('a raw modifier key works too',
+    find('planet_crime_mult', 'civics', civics).length > 0);
+  const authorities = [...view.cat.authorities.keys()];
+  check('authority governance facts are searchable',
+    find('elections', 'authorities', authorities).length > 0,
+    find('elections', 'authorities', authorities).join());
 
   // Every word has to appear, so extra words narrow the result.
   const one = find('unity', 'civics', civics).length;

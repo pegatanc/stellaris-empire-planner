@@ -313,6 +313,18 @@ function searchHaystack(app, category, id) {
       const text = view.loc(tag);
       if (text) parts.push(plainText(view, text));
     }
+    // The stat rows too. Searching "crime" should find the civics whose only
+    // mention of it is a Crime modifier, not just the ones that say the word in
+    // their description. The raw key goes in as well, so `planet_crime_mult`
+    // works for anyone reading the game files.
+    const mods = rules.entityModifiers(entity, app.ctx || rules.makeContext(view, app.build));
+    for (const item of [...mods.active, ...mods.conditional]) {
+      parts.push(plainText(view, modifierLabel(view, item.key, item.value)));
+      parts.push(item.key);
+    }
+    if (entity.data.election_type || entity.data.has_heir) {
+      parts.push(authorityFacts(view, entity).join(' '));
+    }
   }
   const value = parts.join(' ').toLowerCase();
   haystackCache.map.set(cacheKey, value);
