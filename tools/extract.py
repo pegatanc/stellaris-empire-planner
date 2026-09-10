@@ -543,15 +543,15 @@ def extract_options(sources, game_dir):
         blk = cw.parse(read_text(colors_file))
         colors = [k for k, _op, v in blk.items if isinstance(v, cw.Block)]
 
-    # host_has_dlc compares against the `name` in each dlc_metadata file.
+    # host_has_dlc compares against the `name` field of dlc/<folder>/*.dlc.
     dlcs = []
     dlc_root = Path(game_dir) / "dlc"
     if dlc_root.is_dir():
-        for meta_file in sorted(dlc_root.glob("*/dlc_metadata/*.dlc")):
+        for meta_file in sorted(dlc_root.glob("*/*.dlc")):
             blk = cw.parse(read_text(meta_file))
             name = blk.get("name")
             if isinstance(name, str):
-                dlcs.append({"id": meta_file.stem, "name": name})
+                dlcs.append({"id": meta_file.parent.name, "name": name})
 
     return {
         "rooms": sorted(rooms),

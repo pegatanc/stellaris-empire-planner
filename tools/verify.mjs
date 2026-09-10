@@ -14,6 +14,7 @@ import os from 'node:os';
 import { fileURLToPath } from 'node:url';
 
 import { buildView } from '../js/data.js';
+import * as rules from '../js/rules.js';
 import {
   makeContext, evaluate, computeBudgets, aggregateModifiers, archetypeOf,
 } from '../js/rules.js';
@@ -132,6 +133,30 @@ section('3. budgets respond to picks');
   check('LITHOID inherits BIOLOGICAL 2 points / 5 picks',
     budget.traitPoints.max === 2 && budget.traitPicks.max === 5,
     `points ${budget.traitPoints.max}, picks ${budget.traitPicks.max}`);
+}
+
+section('3b. traits granted automatically are picked up');
+{
+  const view = buildView(db, new Set(['base']));
+  const forced = (overrides) => rules.forcedTraits(view, makeBuild(overrides)).locked;
+
+  // Species classes use a bare `trait = x`; origins and civics use
+  // `traits = { trait = x }`. Missing the first would export a species without
+  // the marker trait the game requires.
+  check('HUM contributes trait_organic', forced({ speciesClass: 'HUM' }).has('trait_organic'));
+  check('LITHOID contributes trait_lithoid', forced({ speciesClass: 'LITHOID' }).has('trait_lithoid'));
+  check('MACHINE contributes trait_machine_unit', forced({ speciesClass: 'MACHINE' }).has('trait_machine_unit'));
+
+  const mixed = forced({
+    speciesClass: 'HUM',
+    origin: 'origin_void_dwellers',
+    civics: new Set(['civic_anglers']),
+  });
+  check('origin contributes trait_void_dweller_1', mixed.has('trait_void_dweller_1'));
+  check('civic contributes trait_aquatic', mixed.has('trait_aquatic'));
+
+  const soft = rules.forcedTraits(view, makeBuild({ origin: 'origin_shroudwalker_apprentice' })).soft;
+  check('origin soft traits stay removable', soft.has('trait_latent_psionic'), [...soft.keys()].join());
 }
 
 section('4. the evaluator blocks what the game blocks');

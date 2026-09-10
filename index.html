@@ -1,0 +1,85 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Stellaris Empire Planner</title>
+<meta name="description" content="Plan a Stellaris empire against your own installed game files and mod playset, with real requirement checking.">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'><text y='26' font-size='26'>🪐</text></svg>">
+<link rel="stylesheet" href="css/style.css?v=2">
+</head>
+<body>
+
+<div id="loading" class="loading">
+  <div class="spinner"></div>
+  <p>Loading game data…</p>
+</div>
+
+<div id="fatal" class="fatal" hidden></div>
+
+<div id="app" hidden>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo">🪐</span>
+      <div>
+        <h1>Empire Planner</h1>
+        <p class="sub" id="version-line"></p>
+      </div>
+    </div>
+
+    <div class="budgets" id="budgets"></div>
+
+    <div class="topbar-actions">
+      <button type="button" id="btn-validity" class="chip chip-status">Checking…</button>
+      <button type="button" id="btn-save" class="btn">Save</button>
+      <button type="button" id="btn-load" class="btn">Load</button>
+      <button type="button" id="btn-compare" class="btn">Compare</button>
+      <button type="button" id="btn-export" class="btn btn-primary">Export</button>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <aside class="rail" id="rail">
+      <section class="rail-block">
+        <h2>Mods</h2>
+        <p class="hint">Toggling a mod re-merges the data and re-checks your build.</p>
+        <div class="preset-row">
+          <button type="button" class="btn btn-sm" data-preset="playset">My playset</button>
+          <button type="button" class="btn btn-sm" data-preset="vanilla">Vanilla only</button>
+        </div>
+        <div id="mod-list" class="toggle-list"></div>
+      </section>
+
+      <section class="rail-block">
+        <h2>DLC</h2>
+        <p class="hint">Unticking a DLC hides the content it gates.</p>
+        <div class="preset-row">
+          <button type="button" class="btn btn-sm" data-preset="dlc-all">All</button>
+          <button type="button" class="btn btn-sm" data-preset="dlc-none">None</button>
+        </div>
+        <div id="dlc-list" class="toggle-list toggle-list-dense"></div>
+      </section>
+    </aside>
+
+    <main class="main" id="main"></main>
+
+    <aside class="stats" id="stats"></aside>
+
+  </div>
+</div>
+
+<div id="modal" class="modal" hidden>
+  <div class="modal-card">
+    <header class="modal-head">
+      <h2 id="modal-title"></h2>
+      <button type="button" id="modal-close" class="btn btn-sm" aria-label="Close">✕</button>
+    </header>
+    <div id="modal-body" class="modal-body"></div>
+  </div>
+</div>
+
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

@@ -303,6 +303,126 @@ function collectNestedText(node, reason) {
 }
 
 // --------------------------------------------------------------------------
+// Government names
+//
+// Government `possible` blocks use ordinary country-scope triggers rather than
+// the list syntax, but the vocabulary is small and enumerable. Triggers that
+// only become true after the game starts - ascension authority swaps, country
+// flags, AI/primitive checks - are false at empire creation, which is exactly
+// what keeps post-ascension government names out of the designer.
+// --------------------------------------------------------------------------
+
+const ETHIC_AXIS = {
+  is_authoritarian: ['ethic_authoritarian', 'ethic_fanatic_authoritarian'],
+  is_egalitarian: ['ethic_egalitarian', 'ethic_fanatic_egalitarian'],
+  is_xenophobe: ['ethic_xenophobe', 'ethic_fanatic_xenophobe'],
+  is_xenophile: ['ethic_xenophile', 'ethic_fanatic_xenophile'],
+  is_militarist: ['ethic_militarist', 'ethic_fanatic_militarist'],
+  is_pacifist: ['ethic_pacifist', 'ethic_fanatic_pacifist'],
+  is_spiritualist: ['ethic_spiritualist', 'ethic_fanatic_spiritualist'],
+  is_materialist: ['ethic_materialist', 'ethic_fanatic_materialist'],
+  is_gestalt: ['ethic_gestalt_consciousness'],
+  // Ethics and Civics Classic axes.
+  is_socialism: ['ethic_socialism', 'ethic_fanatic_socialism'],
+  is_capitalism: ['ethic_capitalism', 'ethic_fanatic_capitalism'],
+  is_green: ['ethic_green', 'ethic_fanatic_green'],
+  is_industrial: ['ethic_industrial', 'ethic_fanatic_industrial'],
+};
+
+const AUTHORITY_GROUP = {
+  is_democratic_authority: ['auth_democratic', 'auth_direct_democratic'],
+  is_democratic: ['auth_democratic', 'auth_direct_democratic'],
+  has_auth_democratic: ['auth_democratic', 'auth_direct_democratic'],
+  is_oligarchic_authority: ['auth_oligarchic'],
+  has_auth_oligarchic: ['auth_oligarchic'],
+  is_dictatorial_authority: ['auth_dictatorial'],
+  has_auth_dictatorial: ['auth_dictatorial'],
+  is_imperial_authority: ['auth_imperial'],
+  has_auth_imperial: ['auth_imperial'],
+  is_megacorp: ['auth_corporate'],
+  is_corporate: ['auth_corporate'],
+  has_auth_corporate: ['auth_corporate'],
+  is_hive_empire: ['auth_hive_mind'],
+  has_auth_hive: ['auth_hive_mind'],
+  is_machine_empire: ['auth_machine_intelligence', 'auth_ancient_machine_intelligence'],
+  has_auth_machine: ['auth_machine_intelligence'],
+};
+
+// True only once a game is running, so false in the designer.
+const RUNTIME_ONLY = new Set([
+  'is_ai', 'is_primitive', 'has_country_flag', 'has_global_flag',
+  'is_mutation_authority', 'is_purity_authority', 'is_cloning_authority',
+  'is_transcendent_authority', 'is_corporeal_authority',
+  'is_cyber_creed_advanced_government', 'is_cyber_creed_government',
+  'has_ascension_perk', 'has_technology', 'is_subject', 'has_relic',
+]);
+
+export function evalGovernmentTrigger(node, ctx, unknown, mode = 'AND') {
+  if (!node || typeof node !== 'object') return true;
+  const results = [];
+
+  for (const [key, raw] of Object.entries(node)) {
+    if (key === '__list') continue;
+    const op = key.toUpperCase();
+
+    for (const value of arr(raw)) {
+      const wants = value !== 'no';
+      let result;
+
+      if (op === 'OR') result = evalGovernmentTrigger(value, ctx, unknown, 'OR');
+      else if (op === 'AND') result = evalGovernmentTrigger(value, ctx, unknown, 'AND');
+      else if (op === 'NOT' || op === 'NOR') result = !evalGovernmentTrigger(value, ctx, unknown, 'OR');
+      else if (key === 'always') result = value === 'yes';
+      else if (key === 'has_valid_civic' || key === 'has_civic') result = ctx.civics.has(value);
+      else if (key === 'has_ethic') result = ctx.ethics.has(value);
+      else if (key === 'has_origin') result = ctx.origin === value;
+      else if (key === 'has_authority') result = ctx.authority === value;
+      else if (ETHIC_AXIS[key]) {
+        result = ETHIC_AXIS[key].some((id) => ctx.ethics.has(id)) === wants;
+      } else if (AUTHORITY_GROUP[key]) {
+        result = AUTHORITY_GROUP[key].includes(ctx.authority) === wants;
+      } else if (key === 'is_wilderness_empire') {
+        result = (ctx.origin === 'origin_wilderness') === wants;
+      } else if (key === 'is_worker_coop_empire') {
+        result = ctx.civics.has('civic_worker_coop') === wants;
+      } else if (key === 'host_has_dlc' || key === 'has_dlc') {
+        result = ctx.dlcs.has(String(value));
+      } else if (DLC_TRIGGERS[key]) {
+        result = ctx.dlcs.has(DLC_TRIGGERS[key]) === wants;
+      } else if (RUNTIME_ONLY.has(key)) {
+        result = !wants;      // the trigger is false, so `= no` passes
+      } else {
+        unknown.add(key);
+        // Governments are a ranked list; assuming an unknown trigger true would
+        // flood it with post-ascension names, so stay conservative here.
+        result = false;
+      }
+      results.push(result);
+    }
+  }
+
+  if (!results.length) return true;
+  return mode === 'OR' ? results.some(Boolean) : results.every(Boolean);
+}
+
+/** Governments whose requirements the current build satisfies, best first. */
+export function matchingGovernments(view, ctx) {
+  const out = [];
+  for (const [id, entity] of view.cat.governments) {
+    const unknown = new Set();
+    if (!evalGovernmentTrigger(entity.data.possible, ctx, unknown)) continue;
+    out.push({
+      id,
+      entity,
+      weight: num(entity.data.weight?.base, 1),
+      unknown: [...unknown],
+    });
+  }
+  out.sort((a, b) => b.weight - a.weight || a.id.localeCompare(b.id));
+  return out;
+}
+
+// --------------------------------------------------------------------------
 // Species traits
 // --------------------------------------------------------------------------
 
@@ -314,6 +434,33 @@ const GATE_LISTS = [
   ['allowed_ethics', 'ethics', true],
   ['forbidden_ethics', 'ethics', false],
 ];
+
+/**
+ * Traits the build gets for free from its origin, civics, authority or species
+ * class. `traits` are locked in; origin `soft_traits` can be removed again.
+ */
+export function forcedTraits(view, build) {
+  const locked = new Map();
+  const soft = new Map();
+
+  const take = (entity, label) => {
+    if (!entity) return;
+    // Origins, civics and authorities use `traits = { trait = x }`; species
+    // classes use a bare top-level `trait = x` for their marker trait
+    // (trait_organic, trait_lithoid, trait_machine_unit). Both must be caught,
+    // or an exported species would be missing the trait the game requires.
+    for (const id of arr(entity.data.traits?.trait)) locked.set(id, label);
+    for (const id of arr(entity.data.trait)) locked.set(id, label);
+    for (const id of arr(entity.data.soft_traits?.trait)) soft.set(id, label);
+  };
+
+  take(view.cat.species_classes.get(build.speciesClass), 'species class');
+  take(view.cat.authorities.get(build.authority), 'authority');
+  take(view.cat.origins.get(build.origin), 'origin');
+  for (const id of build.civics) take(view.cat.civics.get(id), 'civic');
+
+  return { locked, soft };
+}
 
 export function traitCost(entity) {
   const cost = entity.data.cost;

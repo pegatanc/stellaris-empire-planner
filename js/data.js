@@ -23,7 +23,10 @@ export const CATEGORIES = [
 
 export async function loadDatabase(base = '') {
   const parts = await Promise.all(DATA_FILES.map(async (name) => {
-    const res = await fetch(`${base}data/${name}.json`);
+    // Revalidate rather than trusting the cache: these files are regenerated
+    // whenever the game or the mod playset changes, and a stale entities.json
+    // paired with a fresh loc.json would silently mis-render.
+    const res = await fetch(`${base}data/${name}.json`, { cache: 'no-cache' });
     if (!res.ok) throw new Error(`could not load data/${name}.json (${res.status})`);
     return [name, await res.json()];
   }));
