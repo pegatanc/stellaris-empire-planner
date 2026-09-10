@@ -423,9 +423,15 @@ button { font: inherit; color: inherit; }
   background: var(--bg-2);
   border-bottom: 1px solid var(--line);
   position: sticky; top: 0; z-index: 20;
-  overflow-x: auto;
 }
-.nav-pills { display: flex; gap: 4px; flex: 1; min-width: 0; }
+.nav-pills {
+  display: flex; gap: 4px; flex: 1 1 auto; min-width: 0;
+  overflow-x: auto; scrollbar-width: thin;
+}
+.nav-pills::-webkit-scrollbar { height: 3px; }
+.nav-pills::-webkit-scrollbar-track { background: transparent; }
+.nav-pills::-webkit-scrollbar-thumb { background: transparent; border-radius: 2px; }
+.nav-pills:hover::-webkit-scrollbar-thumb { background: var(--line); }
 .nav-pill {
   background: none; border: 1px solid transparent; border-radius: 999px;
   padding: 3px 11px; font-size: 12px; color: var(--ink-dim);
@@ -503,3 +509,14 @@ button { font: inherit; color: inherit; }
 }
 .effect-value.pos { color: var(--good); }
 .effect-value.neg { color: var(--bad); }
+
+/* ---------- provenance ---------- */
+
+.prov {
+  font-size: 10px; margin-top: 5px; padding-top: 4px;
+  border-top: 1px solid var(--line-soft);
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.prov-base { color: var(--ink-faint); }
+.prov-added { color: var(--accent); }
+.prov-changed { color: var(--gold); }

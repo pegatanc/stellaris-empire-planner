@@ -38,6 +38,12 @@ actually accept and why. Export a block you can paste straight into your own
   game's own title for it — "Prepatent Species", "Cyborg Species" — with its own
   class, names, portrait and trait budget off its own archetype, the traits the
   civic forces on it locked in, and `secondary_species` written into the export.
+- **Where everything came from.** Every civic, origin, ethic, trait and authority
+  carries its provenance at the bottom of its card: "Base game", "Added by
+  Gigastructural Engineering & More", or "Base game · changed by Ethics and
+  Civics Classic". That last one matters — 172 civics and all 17 vanilla ethics
+  in this playset are silently retuned by a mod, which looks like vanilla
+  otherwise.
 - **Live modifier totals** across ethics, authority, origin, civics and traits.
 - **Getting around**: sticky section jump-links that mark which section holds a
   problem, a "hide unavailable" filter that cuts 168 civics to the ~50 you can

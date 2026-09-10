@@ -32,7 +32,44 @@ export async function loadDatabase(base = '') {
   }));
   const db = Object.fromEntries(parts);
   db.order = Object.fromEntries(db.meta.sources.map((s) => [s.id, s.order]));
+  db.provenance = buildProvenance(db);
   return db;
+}
+
+/**
+ * Every source that defines each id, in load order - not just the winner.
+ * That is what separates "this civic is new" from "this vanilla civic has been
+ * retuned by a mod", which is true of 172 civics and all 17 vanilla ethics.
+ */
+function buildProvenance(db) {
+  const index = new Map();
+  for (const [category, items] of Object.entries(db.entities)) {
+    for (const ent of items) {
+      const key = `${category}/${ent.id}`;
+      if (!index.has(key)) index.set(key, []);
+      const list = index.get(key);
+      if (!list.includes(ent.src)) list.push(ent.src);
+    }
+  }
+  for (const list of index.values()) {
+    list.sort((a, b) => (db.order[a] ?? 0) - (db.order[b] ?? 0));
+  }
+  return index;
+}
+
+/**
+ * How an entity came to be, given which mods are on.
+ * @returns {{origin:'base'|'mod', addedBy:string|null, changedBy:string[]}}
+ */
+export function provenanceOf(db, enabled, category, id) {
+  const all = (db.provenance.get(`${category}/${id}`) || []).filter((src) => enabled.has(src));
+  const fromBase = all.includes('base');
+  const mods = all.filter((src) => src !== 'base');
+  return {
+    origin: fromBase ? 'base' : 'mod',
+    addedBy: fromBase ? null : (mods[0] || null),
+    changedBy: fromBase ? mods : mods.slice(1),
+  };
 }
 
 /** Which mods actually change anything on this screen. */

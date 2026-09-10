@@ -7,6 +7,7 @@
 import { arr, num, el, esc } from './util.js';
 import { renderText, plainText, iconStyle, modifierLabel, formatModifier } from './loc.js';
 import * as rules from './rules.js';
+import { provenanceOf } from './data.js';
 
 export function nameOf(view, id) {
   const text = view.loc(id);
@@ -178,11 +179,35 @@ export function reasonText(view, reason) {
   return `${anyOf ? 'Requires one of: ' : 'Requires '}${phrase}`;
 }
 
+/**
+ * Where this entry came from. Says "changed by" as well as "added by", because
+ * a mod redefining a vanilla civic is invisible otherwise - and 172 civics plus
+ * all 17 vanilla ethics are redefined in this playset.
+ */
+function provenanceLine(app, category, id) {
+  const p = provenanceOf(app.db, app.enabledSources, category, id);
+  const name = (src) => app.sourceName(src);
+
+  let text;
+  let cls = 'prov';
+  if (p.origin === 'mod') {
+    text = `Added by ${name(p.addedBy)}`;
+    cls += ' prov-added';
+  } else if (p.changedBy.length) {
+    text = `Base game · changed by ${p.changedBy.map(name).join(', ')}`;
+    cls += ' prov-changed';
+  } else {
+    text = 'Base game';
+    cls += ' prov-base';
+  }
+  return el('div', { class: cls, title: text }, text);
+}
+
 // --------------------------------------------------------------------------
 // Cards
 // --------------------------------------------------------------------------
 
-function card(app, { id, entity, selected, verdict, cost, onPick, extraNote }) {
+function card(app, { id, entity, selected, verdict, cost, onPick, extraNote, category }) {
   const { view } = app;
   const blocked = verdict && !verdict.ok;
   const unverified = verdict && verdict.unknown.length > 0;
@@ -223,9 +248,7 @@ function card(app, { id, entity, selected, verdict, cost, onPick, extraNote }) {
       `Unverified: this tool cannot check ${verdict.unknown.slice(0, 3).join(', ')}`));
   }
   if (extraNote) body.append(el('div', { class: 'src' }, extraNote));
-  if (entity.src && entity.src !== 'base') {
-    body.append(el('div', { class: 'src' }, `from ${app.sourceName(entity.src)}`));
-  }
+  if (category) body.append(provenanceLine(app, category, id));
 
   const node = el('button', {
     type: 'button',
@@ -525,7 +548,7 @@ export function fillEthicDetail(app, detail) {
         `No modifiers — costs ${num(entity.data.cost, 1)} points and changes nothing.`));
     }
     if (blocker) box.append(el('div', { class: 'why' }, blocker));
-    if (entity.src !== 'base') box.append(el('div', { class: 'src' }, `from ${app.sourceName(entity.src)}`));
+    box.append(provenanceLine(app, 'ethics', entity.id));
     nodes.push(box);
   }
   detail.replaceChildren(...nodes);
@@ -543,6 +566,7 @@ function renderChoice(app, { key, title, category, selectedId, onPick, countLabe
       entity: item.entity,
       selected: item.id === selectedId,
       verdict: item.verdict,
+      category,
       onPick: () => onPick(item.id),
     }));
   }
@@ -568,7 +592,7 @@ function renderCivics(app) {
       ? { ...item.verdict, ok: false, reasons: [{ category: 'civics', text: null, need: [], forbid: [], mode: 'all' }] }
       : item.verdict;
     const node2 = card(app, {
-      id: item.id, entity: item.entity, selected, verdict,
+      id: item.id, entity: item.entity, selected, verdict, category: 'civics',
       onPick: () => app.toggleCivic(item.id),
     });
     if (!selected && atLimit && item.verdict.ok) {
@@ -599,7 +623,7 @@ function renderSpeciesTraits(app) {
       if (!entity) continue;
       chips.append(card(app, {
         id, entity, selected: true, verdict: { ok: true, unknown: [], reasons: [] },
-        cost: 0,
+        cost: 0, category: 'species_traits',
         extraNote: `granted by ${from}${forced.soft.has(id) ? ' (removable)' : ' (locked)'}`,
         onPick: () => {},
       }));
@@ -638,7 +662,7 @@ function renderSpeciesTraits(app) {
     }
     const node2 = card(app, {
       id: item.id, entity: item.entity, selected: item.selected,
-      verdict, cost: item.cost,
+      verdict, cost: item.cost, category: 'species_traits',
       onPick: () => app.toggleTrait(item.id),
     });
     if (!item.selected && item.status.ok && !verdict.ok) {
@@ -690,7 +714,7 @@ function renderRulerTraits(app) {
   for (const item of items) {
     grid.append(card(app, {
       id: item.id, entity: item.entity, selected: item.selected,
-      verdict: item.verdict,
+      verdict: item.verdict, category: 'leader_traits',
       cost: num(item.entity.data.cost, 1),
       extraNote: item.classes.length ? `class: ${item.classes.join(', ')}` : null,
       onPick: () => app.toggleRulerTrait(item.id),
@@ -893,7 +917,7 @@ function renderSecondarySpecies(app) {
       const entity = view.cat.species_traits.get(id);
       if (!entity) continue;
       chips.append(card(app, {
-        id, entity, selected: true, cost: 0,
+        id, entity, selected: true, cost: 0, category: 'species_traits',
         verdict: { ok: true, unknown: [], reasons: [] },
         extraNote: `granted by ${nameOf(view, source)} (locked)`,
         onPick: () => {},
@@ -937,7 +961,7 @@ function renderSecondarySpecies(app) {
     }
     const node = card(app, {
       id: item.id, entity: item.entity, selected: item.selected,
-      verdict, cost: item.cost,
+      verdict, cost: item.cost, category: 'species_traits',
       onPick: () => app.toggleSecondaryTrait(item.id),
     });
     if (!item.selected && item.status.ok && !verdict.ok) {
