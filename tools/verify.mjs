@@ -22,6 +22,7 @@ import { parseEmpireDesigns, serializeEmpire, readEmpire, parseScript } from '..
 import { rollEmpire, FLAVOURS } from '../js/roll.js';
 import { buildIndex, invalidateIndex } from '../js/effects.js';
 import { modifierTone } from '../js/loc.js';
+import { matchesSearch } from '../js/ui.js';
 
 // The browser modules use document for plain-text extraction of loc strings.
 globalThis.document = {
@@ -707,6 +708,51 @@ section('13. modifier colour follows the effect, not the sign');
   check('no modifier whose name says "cost"/"upkeep" is left uninverted',
     leaks === 0, leaks + ' leaked');
   check('the inverted set is populated', inverted.size > 100, inverted.size + ' keys');
+}
+
+section('14. filtering searches descriptions, not just names');
+{
+  const view = buildView(db, new Set(db.meta.sources.map((s) => s.id)));
+  const app = {
+    view,
+    build: makeBuild(),
+    enabledSources: new Set(db.meta.sources.map((s) => s.id)),
+    search: {},
+    sourceName: (id) => id,
+  };
+  const find = (term, category, ids) => {
+    app.search.t = term;
+    return ids.filter((id) => matchesSearch(app, 't', view, id, category));
+  };
+
+  const civics = [...view.cat.civics.keys()];
+  check('matches on name', find('technocracy', 'civics', civics).includes('civic_technocracy'));
+  check('matches on raw id', find('civic_technocracy', 'civics', civics).includes('civic_technocracy'));
+
+  // The point of the change: words that only appear in the body text.
+  const origins = [...view.cat.origins.keys()];
+  check('matches a word only in the description',
+    find('habitat', 'origins', origins).includes('origin_void_dwellers'),
+    find('habitat', 'origins', origins).join());
+
+  const traits = [...view.cat.species_traits.keys()];
+  const lifespan = find('lifespan', 'species_traits', traits);
+  check('trait descriptions are searched', lifespan.includes('trait_enduring'), lifespan.join());
+
+  // Every word has to appear, so extra words narrow the result.
+  const one = find('unity', 'civics', civics).length;
+  const two = find('unity amenities', 'civics', civics).length;
+  check('adding a word narrows rather than widens', two > 0 && two < one, one + ' -> ' + two);
+
+  check('an empty term matches everything',
+    find('', 'civics', civics).length === civics.length);
+  check('nonsense matches nothing', find('zzzznotathing', 'civics', civics).length === 0);
+
+  // Building the index for everything must stay cheap enough to do on demand.
+  const started = Date.now();
+  for (const id of civics) matchesSearch(app, 't', view, id, 'civics');
+  check('the whole civic index builds in under a second',
+    Date.now() - started < 1000, (Date.now() - started) + 'ms');
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

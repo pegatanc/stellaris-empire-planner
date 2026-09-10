@@ -160,6 +160,17 @@ function rerender({ rail = false } = {}) {
 }
 app.rerender = rerender;
 
+// A search only changes what one list shows: no build state moves, so budgets,
+// validation and the other nine sections do not need touching. Debounced so a
+// burst of keystrokes costs one rebuild.
+const searchRedraw = new Map();
+app.searchChanged = (key) => {
+  if (!searchRedraw.has(key)) {
+    searchRedraw.set(key, debounce(() => ui.renderSection(app, key), 120));
+  }
+  searchRedraw.get(key)();
+};
+
 // Text fields never change what is legal, so typing only refreshes the light
 // parts - re-rendering the card grids on every keystroke would be wasteful and
 // would fight the caret.
@@ -245,6 +256,7 @@ app.toggleRulerTrait = (id) => { toggleIn(app.build.rulerTraits, id); rerender()
 app.toggleSource = (id) => {
   toggleIn(app.enabledSources, id);
   invalidateIndex();          // the effect index is per enabled-source set
+  ui.invalidateSearchIndex();
   rerender({ rail: true });
 };
 app.setSources = (ids) => {

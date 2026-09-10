@@ -48,6 +48,10 @@ actually accept and why. Export a block you can paste straight into your own
 - **Getting around**: sticky section jump-links that mark which section holds a
   problem, a "hide unavailable" filter that cuts 168 civics to the ~50 you can
   actually take, and a running summary of your picks you can click to remove.
+- **Filters search the text, not just names.** Each section's filter looks
+  through effects text, flavour text and tags as well as the name and id, so
+  "habitat" finds Void Dwellers and "unity amenities" finds the civics that give
+  both. Every word has to match, so extra words narrow the result.
 - **Find effects** — ask the question backwards. "What in my playset gives
   research speed?" returns every ethic, authority, civic, origin and trait that
   grants it, ranked by how much, with the source mod named. Click a result to

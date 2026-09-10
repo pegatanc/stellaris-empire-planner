@@ -274,7 +274,7 @@ function sectionShell(app, { key, title, count, searchable }) {
       type: 'search',
       placeholder: 'Filter…',
       value: app.search[key] || '',
-      oninput: (e) => { app.search[key] = e.target.value; app.rerender({ keepFocus: `search-${key}` }); },
+      oninput: (e) => { app.search[key] = e.target.value; app.searchChanged(key); },
       dataset: { focusId: `search-${key}` },
     });
     head.append(el('span', { class: 'spacer' }), input);
@@ -284,10 +284,51 @@ function sectionShell(app, { key, title, count, searchable }) {
   return { node: el('section', { class: 'section' }, head, grid), grid };
 }
 
-function matchesSearch(app, key, view, id) {
+/**
+ * Searchable text per entity: its name, its id, its effects and flavour text,
+ * and its tags. Built once per enabled-source set and reused, because resolving
+ * a description means running the whole markup renderer - doing that for every
+ * card on every keystroke is what made typing feel slow.
+ */
+let haystackCache = null;
+
+function searchHaystack(app, category, id) {
+  const token = [...app.enabledSources].sort().join('|');
+  if (!haystackCache || haystackCache.token !== token) {
+    haystackCache = { token, map: new Map() };
+  }
+  const cacheKey = `${category}/${id}`;
+  const cached = haystackCache.map.get(cacheKey);
+  if (cached !== undefined) return cached;
+
+  const { view } = app;
+  const entity = view.cat[category]?.get(id);
+  const parts = [nameOf(view, id), id];
+  if (entity) {
+    const effects = entity.data.description && view.loc(entity.data.description);
+    if (effects) parts.push(plainText(view, effects));
+    const flavour = view.loc(`${id}_desc`);
+    if (flavour) parts.push(plainText(view, flavour));
+    for (const tag of arr(entity.data.tags?.__list)) {
+      const text = view.loc(tag);
+      if (text) parts.push(plainText(view, text));
+    }
+  }
+  const value = parts.join(' ').toLowerCase();
+  haystackCache.map.set(cacheKey, value);
+  return value;
+}
+
+export function invalidateSearchIndex() { haystackCache = null; }
+
+export function matchesSearch(app, key, view, id, category) {
   const term = (app.search[key] || '').trim().toLowerCase();
   if (!term) return true;
-  return nameOf(view, id).toLowerCase().includes(term) || id.toLowerCase().includes(term);
+  const hay = category ? searchHaystack(app, category, id)
+    : `${nameOf(view, id)} ${id}`.toLowerCase();
+  // Every whitespace-separated word must appear somewhere, so "cheap unity"
+  // narrows rather than widening.
+  return term.split(/\s+/).every((word) => hay.includes(word));
 }
 
 // --------------------------------------------------------------------------
@@ -559,7 +600,8 @@ function renderChoice(app, { key, title, category, selectedId, onPick, countLabe
   const { node, grid } = sectionShell(app, {
     key, title, count: countLabel, searchable: true,
   });
-  const items = pickableList(app, category).filter((x) => matchesSearch(app, key, view, x.id));
+  const items = pickableList(app, category)
+    .filter((x) => matchesSearch(app, key, view, x.id, category));
   for (const item of items) {
     grid.append(card(app, {
       id: item.id,
@@ -583,7 +625,7 @@ function renderCivics(app) {
   });
 
   const items = pickableList(app, 'civics')
-    .filter((x) => matchesSearch(app, 'civics', view, x.id));
+    .filter((x) => matchesSearch(app, 'civics', view, x.id, 'civics'));
 
   const atLimit = budgets.civics.used >= budgets.civics.max;
   for (const item of items) {
@@ -637,7 +679,7 @@ function renderSpeciesTraits(app) {
   for (const [id, entity] of view.cat.species_traits) {
     if (forced.locked.has(id)) continue;
     if (!rules.traitIsSelectable(entity)) continue;
-    if (!matchesSearch(app, 'traits', view, id)) continue;
+    if (!matchesSearch(app, 'traits', view, id, 'species_traits')) continue;
     const status = rules.traitStatus(entity, ctx);
     const selected = build.traits.has(id);
     if (!status.available && !selected) continue;
@@ -691,7 +733,7 @@ function renderRulerTraits(app) {
   const items = [];
   for (const [id, entity] of view.cat.leader_traits) {
     if (entity.data.starting_ruler_trait !== 'yes') continue;
-    if (!matchesSearch(app, 'ruler', view, id)) continue;
+    if (!matchesSearch(app, 'ruler', view, id, 'leader_traits')) continue;
     const forbidden = arr(entity.data.forbidden_origins?.__list);
     const allowed = arr(entity.data.allowed_origins?.__list);
     const reasons = [];
@@ -940,7 +982,7 @@ function renderSecondarySpecies(app) {
   for (const [id, entity] of view.cat.species_traits) {
     if (info.forced.has(id)) continue;
     if (!rules.traitIsSelectable(entity)) continue;
-    if (!matchesSearch(app, 'secondary', view, id)) continue;
+    if (!matchesSearch(app, 'secondary', view, id, 'species_traits')) continue;
     const status = rules.traitStatus(entity, secondaryCtx);
     const selected = build.secondary.traits.has(id);
     if (!status.available && !selected) continue;
@@ -1103,30 +1145,60 @@ export const SECTIONS = [
   ['rulerTraits', 'Ruler traits'],
 ];
 
+// One builder per section, so a single section can be rebuilt on its own. A
+// search only changes what one list shows, and rebuilding all ten sections for
+// every keystroke was most of the cost of typing.
+const SECTION_BUILDERS = {
+  identity: (app) => renderIdentity(app),
+  ethics: (app) => renderEthics(app),
+  authority: (app) => renderChoice(app, {
+    key: 'authority', title: 'Authority', category: 'authorities',
+    selectedId: app.build.authority,
+    onPick: (id) => app.set('authority', id),
+  }),
+  origin: (app) => renderChoice(app, {
+    key: 'origin', title: 'Origin', category: 'origins',
+    selectedId: app.build.origin,
+    onPick: (id) => app.set('origin', id),
+  }),
+  civics: (app) => renderCivics(app),
+  traits: (app) => renderSpeciesTraits(app),
+  secondary: (app) => renderSecondarySpecies(app),
+  homeworld: (app) => renderHomeworld(app),
+  ruler: (app) => renderRuler(app),
+  rulerTraits: (app) => renderRulerTraits(app),
+};
+
+function buildSection(app, key) {
+  const node = SECTION_BUILDERS[key](app);
+  node.id = `sec-${key}`;
+  return node;
+}
+
 export function renderMain(app) {
   const main = document.getElementById('main');
-  const built = [
-    ['identity', renderIdentity(app)],
-    ['ethics', renderEthics(app)],
-    ['authority', renderChoice(app, {
-      key: 'authority', title: 'Authority', category: 'authorities',
-      selectedId: app.build.authority,
-      onPick: (id) => app.set('authority', id),
-    })],
-    ['origin', renderChoice(app, {
-      key: 'origin', title: 'Origin', category: 'origins',
-      selectedId: app.build.origin,
-      onPick: (id) => app.set('origin', id),
-    })],
-    ['civics', renderCivics(app)],
-    ['traits', renderSpeciesTraits(app)],
-    ['secondary', renderSecondarySpecies(app)],
-    ['homeworld', renderHomeworld(app)],
-    ['ruler', renderRuler(app)],
-    ['rulerTraits', renderRulerTraits(app)],
-  ];
-  for (const [key, node] of built) node.id = `sec-${key}`;
-  main.replaceChildren(...built.map(([, node]) => node));
+  main.replaceChildren(...SECTIONS.map(([key]) => buildSection(app, key)));
+}
+
+/** Rebuild one section in place, keeping the caret in its search box. */
+export function renderSection(app, key) {
+  const existing = document.getElementById(`sec-${key}`);
+  if (!existing) { renderMain(app); return; }
+  const active = document.activeElement;
+  const focusId = active && active.dataset ? active.dataset.focusId : null;
+  const caret = active && typeof active.selectionStart === 'number' ? active.selectionStart : null;
+
+  existing.replaceWith(buildSection(app, key));
+
+  if (focusId) {
+    const next = document.querySelector(`[data-focus-id="${CSS.escape(focusId)}"]`);
+    if (next) {
+      next.focus();
+      if (caret !== null && typeof next.setSelectionRange === 'function') {
+        try { next.setSelectionRange(caret, caret); } catch { /* not a text input */ }
+      }
+    }
+  }
 }
 
 /** Jump-to-section pills, with a dot on any section holding a problem. */
