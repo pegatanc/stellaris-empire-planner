@@ -159,6 +159,15 @@ filename.
   whose condition the designer can decide (`is_nomadic`, an ethic, a civic) counts
   toward the totals; one that depends on in-game state is shown greyed and
   labelled rather than silently added.
+- **Green means good, not positive.** Plenty of modifiers are better when they
+  go down — costs, upkeep, war exhaustion, empire size, damage *taken*. Colouring
+  by sign alone paints −75% orbital bombardment damage red and +10% building cost
+  green, which is backwards. The extractor works out the 135 keys whose good
+  direction is downward, carefully splitting damage dealt (`army_damage_mult`,
+  `damage_vs_rival_mult`) from damage received (`army_damage_taken_mult`,
+  `planet_orbital_bombardment_damage`). Like the percentage table this is
+  inferred, but it is cross-checked against the localised names as an
+  independent signal, and the two agree on every key.
 - **Percentage vs flat is inferred.** Stellaris ships no file declaring which
   modifiers are percentages, and the `_mult` / `_add` suffix rule leaves 146
   legacy keys undecided. The extractor infers each key's kind from the values the

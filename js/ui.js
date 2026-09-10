@@ -5,7 +5,7 @@
 // inside the budget for a full repaint and keeps the state handling honest.
 
 import { arr, num, el, esc } from './util.js';
-import { renderText, plainText, iconStyle, modifierLabel, formatModifier } from './loc.js';
+import { renderText, plainText, iconStyle, modifierLabel, formatModifier, modifierTone } from './loc.js';
 import * as rules from './rules.js';
 import { provenanceOf } from './data.js';
 
@@ -48,7 +48,7 @@ function modifierList(app, entity, { limit = 0 } = {}) {
   for (const item of shown) {
     const row = el('div', { class: `mod-row${item.state === 'met' ? '' : ' cond'}` },
       el('span', { class: 'mod-name', html: modifierLabel(view, item.key, item.value) }),
-      el('span', { class: `mod-val ${item.value > 0 ? 'pos' : 'neg'}` },
+      el('span', { class: `mod-val ${modifierTone(view, item.key, item.value)}` },
         formatModifier(view, item.key, item.value)));
     if (item.state === 'unmet') row.title = 'Only while its condition holds';
     if (item.state === 'unknown') row.title = 'Depends on in-game state this tool cannot check';
@@ -1250,7 +1250,7 @@ export function renderStats(app) {
       const from = byKey.get(key) || [];
       const row = el('div', { class: 'stat-row' },
         el('span', { class: 'lbl', html: modifierLabel(view, key) }),
-        el('span', { class: `n ${value > 0 ? 'pos' : 'neg'}` }, formatModifier(view, key, value)));
+        el('span', { class: `n ${modifierTone(view, key, value)}` }, formatModifier(view, key, value)));
       row.title = from.map((f) => `${nameOf(view, f.fromId)} (${f.fromKind}): ${formatModifier(view, key, f.value)}`).join('\n');
       group.append(row);
     }

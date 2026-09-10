@@ -520,3 +520,8 @@ button { font: inherit; color: inherit; }
 .prov-base { color: var(--ink-faint); }
 .prov-added { color: var(--accent); }
 .prov-changed { color: var(--gold); }
+
+/* Modifier colouring follows the effect's direction, not its sign. */
+.mod-row .mod-val.good, .stat-row .n.good, .effect-value.good { color: var(--good); }
+.mod-row .mod-val.bad,  .stat-row .n.bad,  .effect-value.bad  { color: var(--bad); }
+.mod-row .mod-val.neutral, .stat-row .n.neutral, .effect-value.neutral { color: var(--ink-dim); }

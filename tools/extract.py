@@ -420,6 +420,40 @@ NON_MODIFIER_KEYS = frozenset({"__list", "custom_tooltip", "potential", "desc", 
 # these three plus army_health / army_morale, which really are percentages.
 FLAT_BY_NAME = re.compile(r"_political_power$|^add_attunement_|_pool_size$")
 
+# Modifiers where a NEGATIVE value is the good outcome, so the colour has to be
+# flipped. Stellaris decides this engine-side like it does percent-vs-flat, so
+# it is a rule here - but a narrow one, derived from the vocabulary actually in
+# use and checked key by key (see the audit's polarity section).
+#
+# `damage` is the trap: army_damage_mult and damage_vs_rival_mult are damage
+# DEALT and want more, while army_damage_taken_mult and
+# planet_orbital_bombardment_damage are damage RECEIVED and want less.
+LOWER_IS_BETTER = re.compile(
+    r"cost"
+    r"|upkeep"
+    r"|empire_size"
+    r"|war_exhaustion"
+    r"|devastation"
+    r"|crime"
+    r"|friction"
+    r"|penalty"
+    r"|damage_taken"
+    r"|bombardment_damage"
+    r"|negative_traits|negative_leader_traits"
+    r"|deviancy|piracy|attrition|unrest|disorder|emigration|decline"
+    r"|_time_mult$|_time_add$|_time$"
+)
+# Checked first: these contain a trigger word but point the other way.
+HIGHER_IS_BETTER = re.compile(r"damage_reduction|damage_vs_|_cost_reduction")
+
+
+def modifier_polarity(keys):
+    """Keys whose good direction is downward."""
+    return sorted(
+        key for key in keys
+        if not HIGHER_IS_BETTER.search(key) and LOWER_IS_BETTER.search(key)
+    )
+
 
 def classify_modifiers(entities):
     """Decide which modifier keys the UI should render as percentages.
@@ -1008,6 +1042,7 @@ def main(argv=None):
 
     modifier_kinds = classify_modifiers(entities)
     pct = sum(1 for v in modifier_kinds.values() if v == "pct")
+    inverted = modifier_polarity(modifier_kinds)
     print(f"\nmodifiers: {len(modifier_kinds)} distinct keys"
           f" ({pct} percentage, {len(modifier_kinds) - pct} flat)")
 
@@ -1015,6 +1050,7 @@ def main(argv=None):
         "generated": time.strftime("%Y-%m-%d %H:%M:%S"),
         "game_version": version,
         "modifier_kinds": modifier_kinds,
+        "modifier_inverted": inverted,
         "sources": [
             {k: v for k, v in src.items() if k != "root"} for src in sources
         ],

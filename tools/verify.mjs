@@ -21,6 +21,7 @@ import {
 import { parseEmpireDesigns, serializeEmpire, readEmpire, parseScript } from '../js/empirefile.js';
 import { rollEmpire, FLAVOURS } from '../js/roll.js';
 import { buildIndex, invalidateIndex } from '../js/effects.js';
+import { modifierTone } from '../js/loc.js';
 
 // The browser modules use document for plain-text extraction of loc strings.
 globalThis.document = {
@@ -662,6 +663,50 @@ section('12. secondary species');
     check('saved designs with a secondary species are read back',
       withSecondary.length > 0, withSecondary.length + ' found');
   }
+}
+
+section('13. modifier colour follows the effect, not the sign');
+{
+  const view = buildView(db, new Set(db.meta.sources.map((s) => s.id)));
+  const tone = (key, value) => modifierTone(view, key, value);
+
+  // The Subterranean origin, which is where this was first spotted: three of
+  // its seven modifiers were coloured backwards.
+  check('less orbital bombardment damage is good',
+    tone('planet_orbital_bombardment_damage', -0.75) === 'good');
+  check('more building cost is bad', tone('planet_structures_cost_mult', 0.10) === 'bad');
+  check('more building upkeep is bad', tone('planet_structures_upkeep_mult', 0.10) === 'bad');
+  check('less storm devastation is good', tone('planet_storm_devastation_mult', -0.25) === 'good');
+  check('less build speed is still bad', tone('planet_building_build_speed_mult', -0.10) === 'bad');
+  check('more housing is still good', tone('mining_district_housing_add', 200) === 'good');
+
+  // Damage is the trap: dealt wants more, received wants less.
+  check('damage dealt by armies wants to go up', tone('army_damage_mult', 0.2) === 'good');
+  check('damage dealt by ships wants to go up', tone('ship_weapon_damage', 0.1) === 'good');
+  check('damage vs rivals wants to go up', tone('damage_vs_rival_mult', 0.15) === 'good');
+  check('damage reduction wants to go up', tone('ship_damage_reduction_mult', 0.1) === 'good');
+  check('damage taken wants to go down', tone('army_damage_taken_mult', -0.2) === 'good');
+
+  check('war exhaustion wants to go down', tone('country_war_exhaustion_mult', -0.2) === 'good');
+  check('empire size wants to go down', tone('empire_size_mult', -0.1) === 'good');
+  check('border friction wants to go down', tone('country_border_friction_mult', 0.33) === 'bad');
+  check('fewer forced negative leader traits is good',
+    tone('negative_traits_leader', -1) === 'good');
+  check('zero reads as neutral', tone('planet_structures_cost_mult', 0) === 'neutral');
+
+  // The rule and an independent signal - the localised names - must agree.
+  const inverted = new Set(db.meta.modifier_inverted);
+  const badWord = /cost|upkeep|penalt|exhaust|devastat|crime|friction|taken|attrition|piracy|unrest|deviancy|decline/i;
+  let leaks = 0;
+  for (const key of Object.keys(db.meta.modifier_kinds)) {
+    if (inverted.has(key)) continue;
+    const name = view.loc('mod_' + key) || '';
+    const plain = name.replace(/[£§$][A-Za-z_0-9]*/g, '');
+    if (plain && badWord.test(plain)) leaks += 1;
+  }
+  check('no modifier whose name says "cost"/"upkeep" is left uninverted',
+    leaks === 0, leaks + ' leaked');
+  check('the inverted set is populated', inverted.size > 100, inverted.size + ' keys');
 }
 
 console.log(`\n${checks - failures}/${checks} checks passed`);

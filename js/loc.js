@@ -243,6 +243,31 @@ export function isPercentModifier(view, key) {
   return /_(mult|chance)$/.test(key);
 }
 
+/**
+ * Some modifiers are better when they go down: costs, upkeep, war exhaustion,
+ * damage taken, empire size. Colouring by sign alone paints -75% orbital
+ * bombardment damage red and +10% building cost green, which is backwards. The
+ * extractor works the set out (see modifier_polarity) and ships it.
+ */
+let invertedSet = null;
+export function isInvertedModifier(view, key) {
+  const list = view?.db?.meta?.modifier_inverted;
+  if (!Array.isArray(list)) return false;
+  if (!invertedSet || invertedSet.source !== list) {
+    invertedSet = new Set(list);
+    invertedSet.source = list;
+  }
+  return invertedSet.has(key);
+}
+
+/** 'good' | 'bad' | 'neutral' for a modifier value, honouring its direction. */
+export function modifierTone(view, key, value) {
+  const n = typeof value === 'number' ? value : parseFloat(value);
+  if (!Number.isFinite(n) || n === 0) return 'neutral';
+  const better = isInvertedModifier(view, key) ? n < 0 : n > 0;
+  return better ? 'good' : 'bad';
+}
+
 export function modifierName(view, key) {
   const direct = view.loc(`mod_${key}`);
   if (direct) return direct;

@@ -5,7 +5,7 @@
 // ranked by how much each one actually gives.
 
 import { arr, el, debounce } from './util.js';
-import { modifierLabel, formatModifier, plainText, iconStyle } from './loc.js';
+import { modifierLabel, formatModifier, plainText, iconStyle, modifierTone } from './loc.js';
 import { nameOf, reasonText, ethicBlocker } from './ui.js';
 import * as rules from './rules.js';
 
@@ -201,7 +201,7 @@ function renderResults(app, state, holder, onPicked) {
         el('span', { class: 'effect-label' }, nameOf(view, provider.id)),
         el('span', { class: 'effect-kind' }, provider.categoryLabel
           + (entity.src !== 'base' ? ` · ${app.sourceName(entity.src)}` : '')),
-        el('span', { class: `effect-value ${provider.value > 0 ? 'pos' : 'neg'}` },
+        el('span', { class: `effect-value ${modifierTone(view, entry.key, provider.value)}` },
           formatModifier(view, entry.key, provider.value)
           + (provider.conditional ? '*' : '')));
       group.append(row);
