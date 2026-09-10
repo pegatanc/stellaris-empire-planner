@@ -373,6 +373,7 @@ export function evalGovernmentTrigger(node, ctx, unknown, mode = 'AND') {
       else if (op === 'AND') result = evalGovernmentTrigger(value, ctx, unknown, 'AND');
       else if (op === 'NOT' || op === 'NOR') result = !evalGovernmentTrigger(value, ctx, unknown, 'OR');
       else if (key === 'always') result = value === 'yes';
+      else if (key === 'is_nomadic') result = Boolean(ctx.isNomadic) === wants;
       else if (key === 'has_valid_civic' || key === 'has_civic') result = ctx.civics.has(value);
       else if (key === 'has_ethic') result = ctx.ethics.has(value);
       else if (key === 'has_origin') result = ctx.origin === value;
@@ -527,27 +528,71 @@ export function traitStatus(entity, ctx) {
 // --------------------------------------------------------------------------
 
 const MODIFIER_FIELDS = ['modifier', 'country_modifier'];
+const TRIGGERED_FIELDS = ['triggered_country_modifier', 'triggered_modifier'];
+const NOT_A_MODIFIER = new Set(['__list', 'custom_tooltip', 'potential', 'desc', 'text']);
+
+function flatten(block) {
+  const out = [];
+  if (!block || typeof block !== 'object') return out;
+  for (const [key, raw] of Object.entries(block)) {
+    if (NOT_A_MODIFIER.has(key)) continue;
+    const value = num(raw, NaN);
+    if (Number.isFinite(value)) out.push({ key, value });
+  }
+  return out;
+}
+
+/**
+ * What one entity actually does, split by whether its condition holds.
+ * `state` is 'met', 'unmet', or 'unknown' when the gate needs in-game state.
+ */
+export function entityModifiers(entity, ctx) {
+  const active = [];
+  const conditional = [];
+  const tooltips = [];
+
+  for (const field of MODIFIER_FIELDS) {
+    const block = entity.data[field];
+    active.push(...flatten(block));
+    if (block && typeof block === 'object' && typeof block.custom_tooltip === 'string') {
+      tooltips.push(block.custom_tooltip);
+    }
+  }
+  if (typeof entity.data.custom_tooltip_with_modifiers === 'string') {
+    tooltips.push(entity.data.custom_tooltip_with_modifiers);
+  }
+
+  for (const field of TRIGGERED_FIELDS) {
+    for (const block of arr(entity.data[field])) {
+      if (!block || typeof block !== 'object') continue;
+      const unknown = new Set();
+      const passes = block.potential
+        ? evalGovernmentTrigger(block.potential, ctx, unknown)
+        : true;
+      const state = unknown.size ? 'unknown' : (passes ? 'met' : 'unmet');
+      for (const item of flatten(block)) {
+        if (state === 'met') active.push(item);
+        else conditional.push({ ...item, state, potential: block.potential });
+      }
+    }
+  }
+
+  return { active, conditional, tooltips };
+}
 
 /** Every modifier the current picks contribute, with attribution. */
 export function aggregateModifiers(view, build) {
   const totals = new Map();
   const contributions = [];
-
-  const add = (fromId, fromKind, block) => {
-    if (!block || typeof block !== 'object') return;
-    for (const [key, raw] of Object.entries(block)) {
-      if (key === '__list' || key === 'custom_tooltip') continue;
-      const value = num(raw, NaN);
-      if (!Number.isFinite(value)) continue;
-      totals.set(key, (totals.get(key) || 0) + value);
-      contributions.push({ key, value, fromId, fromKind });
-    }
-  };
+  const ctx = makeContext(view, build);
 
   const visit = (category, id, kind) => {
     const entity = view.cat[category]?.get(id);
     if (!entity) return;
-    for (const field of MODIFIER_FIELDS) add(id, kind, entity.data[field]);
+    for (const { key, value } of entityModifiers(entity, ctx).active) {
+      totals.set(key, (totals.get(key) || 0) + value);
+      contributions.push({ key, value, fromId: id, fromKind: kind });
+    }
   };
 
   for (const id of build.ethics) visit('ethics', id, 'ethic');

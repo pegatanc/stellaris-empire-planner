@@ -219,6 +219,27 @@ button { font: inherit; color: inherit; }
   display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical;
   overflow: hidden;
 }
+.card .facts, .ethic-detail-card .facts {
+  font-size: 10.5px; color: var(--gold); margin-top: 4px;
+}
+
+.mods { margin-top: 5px; display: flex; flex-direction: column; gap: 1px; }
+.mod-row {
+  display: flex; gap: 8px; align-items: baseline;
+  font-size: 11px; line-height: 1.35;
+}
+.mod-row .mod-name { color: var(--ink-dim); min-width: 0; }
+.mod-row .mod-val {
+  margin-left: auto; flex: none;
+  font-variant-numeric: tabular-nums; font-weight: 600;
+}
+.mod-row .mod-val.pos { color: var(--good); }
+.mod-row .mod-val.neg { color: var(--bad); }
+.mod-row.cond { opacity: .62; }
+.mod-row.cond .mod-name::after { content: ' (conditional)'; color: var(--ink-faint); }
+.mod-more { font-size: 10.5px; color: var(--ink-faint); margin-top: 2px; }
+.mod-note { font-size: 10.5px; color: var(--ink-faint); margin-top: 3px; }
+
 .card .why { font-size: 11px; color: var(--bad); margin-top: 4px; }
 .card .why.warn { color: var(--warn); }
 .card .src { font-size: 10px; color: var(--ink-faint); margin-top: 3px; }

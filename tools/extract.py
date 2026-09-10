@@ -113,9 +113,13 @@ DROP_KEYS = frozenset({
     "on_gained_effect", "pop_attraction", "country_attraction",
     "pop_attraction_tag", "leader_background_job_weight",
     "trade_acceptance_weight", "ethics_to_prefer", "preferred_ethics_weight",
+    # triggered_country_modifier and triggered_modifier are kept: they carry
+    # real empire stats (a vanilla ethic hides a -40% starbase influence cost
+    # behind `is_nomadic = no`), and their potential blocks are often evaluable
+    # at design time. The rest depend on in-game state the designer has not got.
     "triggered_pop_group_modifier", "triggered_planet_growth_habitability_modifier",
     "triggered_species_modifier", "triggered_planet_pop_group_modifier_for_species",
-    "triggered_country_modifier", "triggered_leader_modifier", "triggered_modifier",
+    "triggered_leader_modifier",
     "triggered_councilor_modifier", "triggered_planet_modifier",
     "triggered_sector_modifier", "triggered_background_planet_modifier",
     "triggered_self_modifier", "triggered_fleet_modifier", "triggered_army_modifier",
@@ -380,6 +384,66 @@ def is_leader_trait(trait_id, data):
 # --------------------------------------------------------------------------
 # Defines - key-level override, ignoring file replacement
 # --------------------------------------------------------------------------
+
+MODIFIER_BLOCK_FIELDS = MODIFIER_KEYS + (
+    "triggered_country_modifier", "triggered_modifier",
+)
+NON_MODIFIER_KEYS = frozenset({"__list", "custom_tooltip", "potential", "desc", "text"})
+
+
+# Flat amounts that nonetheless take fractional values, so the rule above would
+# read them as multipliers. Political power is the only family in this playset:
+# Ethics and Civics Classic hands out +9 ruler political power while other
+# civics shift it by 0.25, and both are flat additions. Auditing every key that
+# was classed as a percentage yet carries a value of 3 or more turns up only
+# these three plus army_health / army_morale, which really are percentages.
+FLAT_BY_NAME = re.compile(r"_political_power$|^add_attunement_|_pool_size$")
+
+
+def classify_modifiers(entities):
+    """Decide which modifier keys the UI should render as percentages.
+
+    The engine formats from the identifier suffix - `_mult` is a percentage,
+    `_add` is flat - but 146 legacy keys carry neither, and they are genuinely
+    mixed: pop_happiness = 0.05 means +5% while max_rivalries = 2 means two more
+    rivals. There is no data file that says which is which, so infer it from the
+    values actually shipped: a fractional value below 1 is a multiplier, whole
+    numbers are counts.
+    """
+    observed = defaultdict(list)
+
+    def take(block):
+        if not isinstance(block, dict):
+            return
+        for key, val in block.items():
+            if key in NON_MODIFIER_KEYS or not isinstance(val, str):
+                continue
+            try:
+                observed[key].append(float(val))
+            except ValueError:
+                pass
+
+    for items in entities.values():
+        for ent in items:
+            for field in MODIFIER_BLOCK_FIELDS:
+                value = ent["data"].get(field)
+                for block in (value if isinstance(value, list) else [value]):
+                    take(block)
+
+    kinds = {}
+    for key, values in observed.items():
+        if key.endswith("_mult"):
+            kinds[key] = "pct"
+        elif key.endswith("_add") or FLAT_BY_NAME.search(key):
+            kinds[key] = "flat"
+        elif any(v != int(v) and abs(v) < 1 for v in values):
+            kinds[key] = "pct"
+        else:
+            kinds[key] = "flat"
+    return kinds
+
+
+
 
 def extract_defines(sources):
     out = []
@@ -890,9 +954,15 @@ def main(argv=None):
     if icon_map:
         print(f"  sheet {sheet_size[0]}x{sheet_size[1]} with {len(icon_map)} cells")
 
+    modifier_kinds = classify_modifiers(entities)
+    pct = sum(1 for v in modifier_kinds.values() if v == "pct")
+    print(f"\nmodifiers: {len(modifier_kinds)} distinct keys"
+          f" ({pct} percentage, {len(modifier_kinds) - pct} flat)")
+
     meta = {
         "generated": time.strftime("%Y-%m-%d %H:%M:%S"),
         "game_version": version,
+        "modifier_kinds": modifier_kinds,
         "sources": [
             {k: v for k, v in src.items() if k != "root"} for src in sources
         ],

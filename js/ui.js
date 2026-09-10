@@ -27,6 +27,64 @@ function iconNode(view, id, size = 30) {
   return node;
 }
 
+/**
+ * The actual numbers an entity gives you. Conditional blocks are shown but
+ * marked, because a modifier gated on something the designer cannot decide is
+ * not the same as one you are getting.
+ */
+function modifierList(app, entity, { limit = 0 } = {}) {
+  const { view, ctx } = app;
+  const { active, conditional, tooltips } = rules.entityModifiers(entity, ctx);
+
+  const rows = [
+    ...active.map((m) => ({ ...m, state: 'met' })),
+    ...conditional,
+  ];
+  if (!rows.length && !tooltips.length) return null;
+
+  const wrap = el('div', { class: 'mods' });
+  const shown = limit ? rows.slice(0, limit) : rows;
+  for (const item of shown) {
+    const row = el('div', { class: `mod-row${item.state === 'met' ? '' : ' cond'}` },
+      el('span', { class: 'mod-name', html: modifierLabel(view, item.key, item.value) }),
+      el('span', { class: `mod-val ${item.value > 0 ? 'pos' : 'neg'}` },
+        formatModifier(view, item.key, item.value)));
+    if (item.state === 'unmet') row.title = 'Only while its condition holds';
+    if (item.state === 'unknown') row.title = 'Depends on in-game state this tool cannot check';
+    wrap.append(row);
+  }
+  if (limit && rows.length > limit) {
+    wrap.append(el('div', { class: 'mod-more' }, `+${rows.length - limit} more`));
+  }
+  for (const key of tooltips) {
+    const text = view.loc(key);
+    if (text) wrap.append(el('div', { class: 'mod-note', html: renderText(view, text) }));
+  }
+  return wrap;
+}
+
+/** Election rules, succession and the rest of an authority's governance. */
+function authorityFacts(view, entity) {
+  const data = entity.data;
+  const facts = [];
+  if (data.election_type && data.election_type !== 'none') {
+    const term = num(data.election_term_years, 0);
+    facts.push(`${data.election_type} elections${term ? `, ${term} yr term` : ''}`);
+  } else if (data.has_heir === 'yes') {
+    facts.push('hereditary succession');
+  } else if (data.election_type === 'none') {
+    facts.push('no elections');
+  }
+  if (data.re_election_allowed === 'yes') facts.push('re-election allowed');
+  if (data.max_election_candidates) facts.push(`${data.max_election_candidates} candidates`);
+  if (data.can_have_emergency_elections === 'yes') facts.push('emergency elections');
+  if (data.has_agendas === 'yes') facts.push('council agendas');
+  if (data.uses_mandates === 'yes') facts.push('mandates');
+  if (data.can_reform === 'no') facts.push('cannot be reformed');
+  if (data.has_factions === 'no') facts.push('no factions');
+  return facts;
+}
+
 function reasonText(view, reason) {
   if (reason.text) {
     const custom = view.loc(reason.text);
@@ -64,6 +122,13 @@ function card(app, { id, entity, selected, verdict, cost, onPick, extraNote }) {
   if (desc) {
     body.append(el('div', { class: 'desc', html: renderText(view, desc) }));
   }
+
+  const facts = entity.data.election_type || entity.data.has_heir
+    ? authorityFacts(view, entity) : [];
+  if (facts.length) body.append(el('div', { class: 'facts' }, facts.join(' · ')));
+
+  const mods = modifierList(app, entity, { limit: 5 });
+  if (mods) body.append(mods);
 
   if (blocked) {
     const why = verdict.reasons.slice(0, 2).map((r) => reasonText(view, r)).join(' · ');
@@ -367,6 +432,9 @@ export function fillEthicDetail(app, detail) {
       el('span', { class: 'cost' }, `${num(entity.data.cost, 1)} pt`)));
     const desc = describeEntity(view, entity);
     if (desc) box.append(el('div', { class: 'desc', html: renderText(view, desc) }));
+    const mods = modifierList(app, entity);
+    if (mods) box.append(mods);
+    else box.append(el('div', { class: 'mod-note' }, 'No direct empire modifiers.'));
     if (blocker) box.append(el('div', { class: 'why' }, blocker));
     if (entity.src !== 'base') box.append(el('div', { class: 'src' }, `from ${app.sourceName(entity.src)}`));
     nodes.push(box);

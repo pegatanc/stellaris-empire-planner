@@ -41,8 +41,15 @@ export function iconHTML(view, key, size = 16, cls = 'ticon') {
   return `<i class="${cls}" style="${style}"></i>`;
 }
 
-/** Render a raw localisation string to HTML. */
-export function renderText(view, raw, params = {}, depth = 0) {
+/**
+ * Render a raw localisation string to HTML.
+ *
+ * `scriptedFallback` turns unevaluable [This.GetFoo] tokens into a readable
+ * word instead of dropping them. Body text reads better without them, but a
+ * modifier label is a short phrase where the gap is glaring - "Add Attunement
+ * with" trailing off into nothing.
+ */
+export function renderText(view, raw, params = {}, depth = 0, opts = {}) {
   if (!raw) return '';
   if (depth > MAX_NESTING) return esc(raw);
 
@@ -89,7 +96,7 @@ export function renderText(view, raw, params = {}, depth = 0) {
       if (end === -1) { plain += ch; i += 1; continue; }
       const body = raw.slice(i + 1, end);
       flush();
-      out.push(expandToken(view, body, params, depth));
+      out.push(expandToken(view, body, params, depth, opts));
       i = end + 1;
       continue;
     }
@@ -98,7 +105,7 @@ export function renderText(view, raw, params = {}, depth = 0) {
       const end = raw.indexOf(']', i + 1);
       if (end === -1) { plain += ch; i += 1; continue; }
       flush();
-      out.push(renderScriptedToken(view, raw.slice(i + 1, end)));
+      out.push(renderScriptedToken(view, raw.slice(i + 1, end), opts));
       i = end + 1;
       continue;
     }
@@ -120,7 +127,7 @@ export function plainText(view, raw, params = {}) {
   return holder.textContent.trim();
 }
 
-function expandToken(view, body, params, depth) {
+function expandToken(view, body, params, depth, opts = {}) {
   const pipe = body.indexOf('|');
   const name = pipe === -1 ? body : body.slice(0, pipe);
   const spec = pipe === -1 ? '' : body.slice(pipe + 1);
@@ -129,19 +136,29 @@ function expandToken(view, body, params, depth) {
     return formatValue(params[name], spec);
   }
   const nested = view.loc(name);
-  if (nested) return renderText(view, nested, params, depth + 1);
+  if (nested) return renderText(view, nested, params, depth + 1, opts);
   return esc(name);
 }
 
 // Scripted-loc tokens can't be evaluated without the game running. Concept links
 // have a readable name in the loc data; the rest degrade to nothing rather than
 // showing raw script.
-function renderScriptedToken(view, body) {
+function renderScriptedToken(view, body, opts = {}) {
   const concept = body.match(/^'([A-Za-z0-9_]+)'$/);
   if (concept) {
     const key = concept[1];
     const name = view.loc(key) || key.replace(/^concept_/, '').replace(/_/g, ' ');
     return `<span class="concept">${esc(stripMarkup(name))}</span>`;
+  }
+  if (opts.scriptedFallback) {
+    const call = body.match(/(?:^|\.)Get([A-Za-z0-9_]+)$/);
+    if (call) {
+      const words = call[1]
+        .replace(/(Color|Icon|Name)$/, '')
+        .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+        .trim();
+      if (words) return esc(words);
+    }
   }
   return '';
 }
@@ -191,10 +208,14 @@ function trimNumber(n) {
 // --------------------------------------------------------------------------
 
 /**
- * There is no data file saying which modifiers are percentages - the engine
- * decides from the identifier suffix, so we do the same.
+ * Whether a modifier renders as a percentage. The extractor works this out from
+ * the values the game actually ships (see classify_modifiers), because the
+ * `_mult` / `_add` suffix rule leaves 146 legacy keys undecided and they are
+ * genuinely mixed - pop_happiness = 0.05 is +5%, max_rivalries = 2 is two more.
  */
-export function isPercentModifier(key) {
+export function isPercentModifier(view, key) {
+  const kind = view?.db?.meta?.modifier_kinds?.[key];
+  if (kind) return kind === 'pct';
   return /_(mult|chance)$/.test(key);
 }
 
@@ -209,15 +230,20 @@ export function modifierName(view, key) {
 export function formatModifier(view, key, value) {
   const n = typeof value === 'number' ? value : parseFloat(value);
   if (!Number.isFinite(n)) return esc(String(value));
-  if (isPercentModifier(key)) {
+  if (isPercentModifier(view, key)) {
     const pct = Math.round(n * 1000) / 10;
     return `${pct > 0 ? '+' : ''}${pct}%`;
   }
   return `${n > 0 ? '+' : ''}${trimNumber(n)}`;
 }
 
-/** Resolve a modifier label, following the mod_x -> $MOD_X$ indirection. */
-export function modifierLabel(view, key) {
+/**
+ * Resolve a modifier label, following the mod_x -> $MOD_X$ indirection. Some
+ * labels interpolate the value itself ("$VALUE$ per Researcher job"), so the
+ * amount is passed through as a parameter.
+ */
+export function modifierLabel(view, key, value) {
   const raw = modifierName(view, key);
-  return renderText(view, raw, {});
+  const params = value === undefined ? {} : { VALUE: value, AMOUNT: value, NUM: value };
+  return renderText(view, raw, params, 0, { scriptedFallback: true });
 }
