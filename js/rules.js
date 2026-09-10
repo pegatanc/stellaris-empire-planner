@@ -211,11 +211,16 @@ export function evaluate(entity, ctx) {
   const data = entity.data || {};
   const unknown = new Set();
 
-  const playable = data.playable ? evalTrigger(data.playable, ctx, unknown) : true;
-  const potential = data.potential ? evalRequirement(data.potential, ctx, unknown) : true;
-  const ok = data.possible ? evalRequirement(data.possible, ctx, unknown) : true;
+  // A block can be declared more than once - civic_eager_explorers and
+  // civic_crafters both carry two `possible` blocks - and the game requires all
+  // of them. Reading the array as a single block silently skipped every clause.
+  const all = (field, fn) => arr(data[field]).every((block) => fn(block, ctx, unknown));
 
-  const reasons = ok ? [] : failingClauses(data.possible, ctx);
+  const playable = all('playable', evalTrigger);
+  const potential = all('potential', evalRequirement);
+  const ok = all('possible', evalRequirement);
+
+  const reasons = ok ? [] : arr(data.possible).flatMap((block) => failingClauses(block, ctx));
   return {
     available: playable && potential,
     ok,
@@ -496,7 +501,9 @@ export function matchingGovernments(view, ctx) {
   const out = [];
   for (const [id, entity] of view.cat.governments) {
     const unknown = new Set();
-    if (!evalGovernmentTrigger(entity.data.possible, ctx, unknown)) continue;
+    const passes = arr(entity.data.possible)
+      .every((block) => evalGovernmentTrigger(block, ctx, unknown));
+    if (!passes) continue;
     out.push({
       id,
       entity,
@@ -621,7 +628,11 @@ function flatten(block) {
   if (!block || typeof block !== 'object') return out;
   for (const [key, raw] of Object.entries(block)) {
     if (NOT_A_MODIFIER.has(key)) continue;
-    const value = num(raw, NaN);
+    // A modifier key can be declared twice in one block - Ethics and Civics
+    // Classic sets country_claim_influence_cost_mult to 0.20 and then -0.1 on
+    // civic_nationalistic_zeal. The engine keeps the last, so taking the first
+    // would show +20% where the game applies -10%.
+    const value = num(Array.isArray(raw) ? raw[raw.length - 1] : raw, NaN);
     if (Number.isFinite(value)) out.push({ key, value });
   }
   return out;
@@ -637,10 +648,11 @@ export function entityModifiers(entity, ctx) {
   const tooltips = [];
 
   for (const field of MODIFIER_FIELDS) {
-    const block = entity.data[field];
-    active.push(...flatten(block));
-    if (block && typeof block === 'object' && typeof block.custom_tooltip === 'string') {
-      tooltips.push(block.custom_tooltip);
+    for (const block of arr(entity.data[field])) {
+      active.push(...flatten(block));
+      if (block && typeof block === 'object' && typeof block.custom_tooltip === 'string') {
+        tooltips.push(block.custom_tooltip);
+      }
     }
   }
   if (typeof entity.data.custom_tooltip_with_modifiers === 'string') {

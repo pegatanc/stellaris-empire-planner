@@ -13,6 +13,7 @@ _TOK = re.compile(
       [ \t\r\n]+
     | \#[^\n]*
     | "(?:[^"\\]|\\.)*"
+    | @\[[^\]]*\]
     | [{}]
     | >=|<=|!=|==|=|>|<
     | [^\s{}=<>#"]+
@@ -144,9 +145,32 @@ def to_obj(block, resolve=None, drop=()):
     return obj
 
 
+_INLINE_MATH = re.compile(r"^@\[(.*)\]$")
+_ARITHMETIC_ONLY = re.compile(r"^[0-9.+\-*/() ]+$")
+
+
+def eval_inline_math(expr, resolve):
+    """`@[ 3 * giga_birch_job_size ]` - arithmetic over scripted variables."""
+    body = expr
+    for name in sorted(set(re.findall(r"[A-Za-z_][A-Za-z_0-9]*", body)), key=len, reverse=True):
+        value = resolve.get(name) or resolve.get("@" + name)
+        if value is None:
+            return None
+        body = body.replace(name, f"({value})")
+    if not _ARITHMETIC_ONLY.match(body):
+        return None
+    try:
+        return numstr(float(eval(body, {"__builtins__": {}}, {})))  # noqa: S307 - digits and operators only
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def resolve_scalar(val, resolve):
     if not resolve or not isinstance(val, str):
         return val
+    math = _INLINE_MATH.match(val)
+    if math:
+        return eval_inline_math(math.group(1), resolve) or val
     if val.startswith("@"):
         return resolve.get(val, val)
     if val.startswith("-@"):
@@ -205,6 +229,7 @@ def _selfcheck():
         '    swap_type = { name = "B" }\n'
         '    weight = @my_var\n'
         '    negweight = -@my_var\n'
+        '    computed = @[ 3 * my_var ]\n'
         '    desc = "text with # hash inside"\n'
         '}\n'
     )
@@ -228,6 +253,8 @@ def _selfcheck():
     # scripted variable resolution, both signs
     assert obj["weight"] == "7"
     assert obj["negweight"] == "-7"
+    # @[ ... ] inline arithmetic over scripted variables
+    assert obj["computed"] == "21", obj["computed"]
     # a '#' inside a string is not a comment
     assert obj["desc"] == "text with # hash inside", obj["desc"]
 

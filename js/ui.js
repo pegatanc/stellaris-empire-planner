@@ -201,10 +201,10 @@ function card(app, { id, entity, selected, verdict, cost, onPick, extraNote }) {
     ? authorityFacts(view, entity) : [];
   if (facts.length) body.append(el('div', { class: 'facts' }, facts.join(' · ')));
 
-  const mods = modifierList(app, entity, { limit: 5 });
+  const mods = modifierList(app, entity);
   if (mods) body.append(mods);
 
-  const tags = tagList(app, entity, { limit: 2 });
+  const tags = tagList(app, entity);
   if (tags) body.append(tags);
 
   if (blocked) {
