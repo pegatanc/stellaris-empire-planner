@@ -403,3 +403,5 @@ button { font: inherit; color: inherit; }
   .rail { display: none; }
   .rail.open { display: block; position: fixed; left: 0; top: 0; bottom: 0; width: 260px; z-index: 30; }
 }
+
+.mod-note.warn-note { color: var(--warn); }

@@ -202,6 +202,25 @@ section('4. the evaluator blocks what the game blocks');
     !evaluate(robot, ctx({})).available);
 }
 
+section('4b. entries a mod ships switched off are reported as disabled');
+{
+  const view = buildView(db, new Set(['base', '1121692237']));
+  const frameworld = view.cat.origins.get('origin_frameworld');
+  if (!frameworld) {
+    check('frameworld origin present', false, 'entity missing');
+  } else {
+    const verdict = evaluate(frameworld, makeContext(view, makeBuild()));
+    check('frameworld is blocked', !verdict.ok);
+    // `possible = { always = no }` is a mod switching an entry off, not a
+    // requirement. Rendering it as one produced "Requires no".
+    check('reported as disabled, not as a requirement',
+      verdict.reasons.length === 1 && verdict.reasons[0].category === 'disabled',
+      JSON.stringify(verdict.reasons));
+    check("the mod's own note is carried through",
+      verdict.reasons[0].text === 'Disabled for 4.0', verdict.reasons[0].text);
+  }
+}
+
 section('5. modded requirements evaluate');
 {
   const view = buildView(db, new Set(['base', '1100284147']));

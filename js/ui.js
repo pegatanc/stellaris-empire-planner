@@ -85,11 +85,25 @@ function authorityFacts(view, entity) {
   return facts;
 }
 
-function reasonText(view, reason) {
-  if (reason.text) {
-    const custom = view.loc(reason.text);
-    if (custom) return plainText(view, custom);
+/**
+ * A `text` override is usually a loc key, but mods sometimes put a plain
+ * sentence there instead (Gigastructural writes `text = "Disabled for 4.0"`).
+ * Show a resolved key, or an unresolved value only when it reads as prose.
+ */
+function reasonNote(view, reason) {
+  if (!reason.text) return null;
+  const resolved = view.loc(reason.text);
+  if (resolved) return plainText(view, resolved);
+  return /\s/.test(reason.text) ? reason.text : null;
+}
+
+export function reasonText(view, reason) {
+  const note = reasonNote(view, reason);
+  if (reason.category === 'disabled') {
+    return note ? `Disabled by the mod — ${note}` : 'Disabled by the mod';
   }
+  if (note) return note;
+  if (reason.literal) return `Requires ${reason.need.join(', ')}`;
   const list = (ids) => ids.map((id) => nameOf(view, id)).join(', ');
   if (reason.forbid.length) return `Conflicts with ${list(reason.forbid)}`;
   if (!reason.need.length) return `Blocked by ${reason.category}`;
@@ -256,20 +270,23 @@ function ethicAxes(view) {
   return { axes, hub };
 }
 
+// Gestalt consciousness is the only ethic the engine treats as exclusive, and it
+// is hardcoded by id - every civic and authority checks for this exact key. An
+// expensive single-member category is NOT automatically exclusive: Ethics and
+// Civics Classic's Singular Purpose also costs 3 and sits alone in its own
+// category, but nothing stops you pairing it with other ethics.
+const EXCLUSIVE_ETHIC = 'ethic_gestalt_consciousness';
+
 /** Why this ethic cannot be picked right now, or null. */
 function ethicBlocker(app, entity) {
   const { view, build, budgets } = app;
   const id = entity.id;
   if (build.ethics.has(id)) return null;
 
-  const hubSelected = [...build.ethics]
-    .find((other) => isHubEthic(view, other));
-  const isHub = isHubEthic(view, entity);
-
-  if (hubSelected && hubSelected !== id) {
-    return `${nameOf(view, hubSelected)} excludes every other ethic`;
+  if (build.ethics.has(EXCLUSIVE_ETHIC) && id !== EXCLUSIVE_ETHIC) {
+    return `${nameOf(view, EXCLUSIVE_ETHIC)} excludes every other ethic`;
   }
-  if (isHub && build.ethics.size) return 'Remove your other ethics first';
+  if (id === EXCLUSIVE_ETHIC && build.ethics.size) return 'Remove your other ethics first';
 
   const category = entity.data.category;
   const clash = [...build.ethics]
@@ -282,13 +299,6 @@ function ethicBlocker(app, entity) {
     return left > 0 ? `Needs ${cost} points, ${left} left` : 'No ethic points left';
   }
   return null;
-}
-
-function isHubEthic(view, id) {
-  const entity = typeof id === 'string' ? view.cat.ethics.get(id) : id;
-  if (!entity) return false;
-  return num(entity.data.cost, 1) >= 3 && !entity.data.fanatic_variant
-    && !entity.data.regular_variant;
 }
 
 function ethicButton(app, entity, { x, y, size }) {
@@ -434,7 +444,13 @@ export function fillEthicDetail(app, detail) {
     if (desc) box.append(el('div', { class: 'desc', html: renderText(view, desc) }));
     const mods = modifierList(app, entity);
     if (mods) box.append(mods);
-    else box.append(el('div', { class: 'mod-note' }, 'No direct empire modifiers.'));
+    else {
+      // Ethics and Civics Classic leaves ethic_focused ("Singular Purpose") in
+      // the data with no modifiers and nothing referencing it, so it silently
+      // eats 3 of your points. Say so instead of leaving the panel blank.
+      box.append(el('div', { class: 'mod-note warn-note' },
+        `No modifiers — costs ${num(entity.data.cost, 1)} points and changes nothing.`));
+    }
     if (blocker) box.append(el('div', { class: 'why' }, blocker));
     if (entity.src !== 'base') box.append(el('div', { class: 'src' }, `from ${app.sourceName(entity.src)}`));
     nodes.push(box);

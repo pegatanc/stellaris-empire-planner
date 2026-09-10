@@ -218,12 +218,18 @@ export function evaluate(entity, ctx) {
  */
 function failingClauses(block, ctx) {
   const out = [];
+  // A `text` beside the clauses is the block's own explanation; use it wherever
+  // a clause has none of its own.
+  const blockText = block && typeof block === 'object' ? block.text : null;
   for (const [key, raw] of Object.entries(block || {})) {
     if (IGNORED_KEYS.has(key)) continue;
     for (const sub of arr(raw)) {
       const scratch = new Set();
       if (evalRequirement({ [key]: sub }, ctx, scratch)) continue;
-      out.push(...describeClause(key, sub, ctx));
+      for (const reason of describeClause(key, sub, ctx)) {
+        if (!reason.text && blockText) reason.text = blockText;
+        out.push(reason);
+      }
     }
   }
   return out;
@@ -242,8 +248,21 @@ function describeClause(key, node, ctx) {
     if (!out.length) out.push({ category: key, text: node?.text || null, need: [], forbid: [], mode: 'all' });
     return out;
   }
+  if (key === 'always') {
+    // `always = no` is how a mod ships an entry switched off (Gigastructural's
+    // Frameworld origin, "Disabled for 4.0"). It is not a requirement you can
+    // meet, so say that rather than rendering it as one.
+    return [{ category: 'disabled', text: null, need: [], forbid: [], mode: 'all' }];
+  }
   if (BARE_TRIGGERS[key]) {
-    return [{ category: key, text: null, need: [String(node)], forbid: [], mode: 'all' }];
+    return [{
+      category: key,
+      text: null,
+      need: [`${key} = ${node}`],
+      forbid: [],
+      mode: 'all',
+      literal: true,
+    }];
   }
   const reason = { category: key, text: null, need: [], forbid: [], mode: 'all' };
   collectNestedText(node, reason);

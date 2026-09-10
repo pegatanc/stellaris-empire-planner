@@ -6,7 +6,6 @@ import * as rules from './rules.js';
 import * as exporter from './export.js';
 import { parseEmpireDesigns } from './empirefile.js';
 import { el, debounce } from './util.js';
-import { plainText } from './loc.js';
 
 const app = {
   db: null,
@@ -293,16 +292,8 @@ app.issues = () => {
 function describe(view, reasons) {
   if (!reasons.length) return 'requirements not met';
   return reasons.map((reason) => {
-    if (reason.text) {
-      const custom = view.loc(reason.text);
-      if (custom) return plainText(view, custom);
-    }
-    const list = (ids) => ids.map((id) => ui.nameOf(view, id)).join(', ');
-    if (reason.forbid.length) return `conflicts with ${list(reason.forbid)}`;
-    if (!reason.need.length) return `blocked by ${reason.category}`;
-    return reason.mode === 'any'
-      ? `requires one of ${list(reason.need)}`
-      : `requires ${list(reason.need)}`;
+    const text = ui.reasonText(view, reason);
+    return text.charAt(0).toLowerCase() + text.slice(1);
   }).join('; ');
 }
 
