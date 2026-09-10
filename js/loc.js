@@ -82,22 +82,30 @@ export function renderText(view, raw, params = {}, depth = 0, opts = {}) {
     }
 
     if (ch === '£') {
-      const end = raw.indexOf('£', i + 1);
-      const body = end === -1 ? raw.slice(i + 1).split(/\s/)[0] : raw.slice(i + 1, end);
-      const token = body.split('|')[0];
+      // Match the identifier rather than scanning to the next £. Mod text
+      // contains unmatched delimiters, and scanning ahead would swallow a whole
+      // clause as if it were an icon name.
+      const token = /^£([A-Za-z0-9_]+)(?:\|[A-Za-z0-9_$]+)?(£?)/.exec(raw.slice(i));
       flush();
-      out.push(iconHTML(view, `text_${token}`, 15) || '');
-      i = end === -1 ? i + 1 + body.length : end + 1;
+      if (token) {
+        out.push(iconHTML(view, `text_${token[1]}`, 15) || '');
+        i += token[0].length;
+      } else {
+        i += 1;                       // stray £, drop it
+      }
       continue;
     }
 
     if (ch === '$') {
-      const end = raw.indexOf('$', i + 1);
-      if (end === -1) { plain += ch; i += 1; continue; }
-      const body = raw.slice(i + 1, end);
+      // Match the key rather than scanning to the next $. A key never contains
+      // whitespace, so this cannot swallow a clause, and accepting £ as a
+      // closing delimiter tolerates the mismatched "$r_trade£" in the shipped
+      // localisation.
+      const token = /^\$([A-Za-z0-9_.\-']+(?:\|[^$£\s]*)?)[$£]/.exec(raw.slice(i));
+      if (!token) { plain += ch; i += 1; continue; }
       flush();
-      out.push(expandToken(view, body, params, depth, opts));
-      i = end + 1;
+      out.push(expandToken(view, token[1], params, depth, opts));
+      i += token[0].length;
       continue;
     }
 
@@ -144,11 +152,16 @@ function expandToken(view, body, params, depth, opts = {}) {
 // have a readable name in the loc data; the rest degrade to nothing rather than
 // showing raw script.
 function renderScriptedToken(view, body, opts = {}) {
-  const concept = body.match(/^'([A-Za-z0-9_]+)'$/);
-  if (concept) {
-    const key = concept[1];
-    const name = view.loc(key) || key.replace(/^concept_/, '').replace(/_/g, ' ');
-    return `<span class="concept">${esc(stripMarkup(name))}</span>`;
+  // ['concept_x'] and scoped links like ['technology:tech_x'] or
+  // ['building:building_y']. Both name a real loc key; the scoped form resolves
+  // on the part after the colon.
+  const link = body.match(/^'([A-Za-z0-9_.:\-]+)'$/);
+  if (link) {
+    const raw = link[1];
+    const bare = raw.split(':').pop();
+    const text = view.loc(raw) || view.loc(bare) || view.loc(`concept_${bare}`)
+      || bare.replace(/^concept_/, '').replace(/_/g, ' ');
+    return `<span class="concept">${esc(stripMarkup(renderNested(view, text)))}</span>`;
   }
   if (opts.scriptedFallback) {
     const call = body.match(/(?:^|\.)Get([A-Za-z0-9_]+)$/);
@@ -161,6 +174,17 @@ function renderScriptedToken(view, body, opts = {}) {
     }
   }
   return '';
+}
+
+/** Concept names are themselves indirections - concept_inf_lm_armor is
+ *  "$INF_Regen$ Armor" - so resolve the chain before showing the label. */
+function renderNested(view, text, depth = 0) {
+  if (depth > 4 || !String(text).includes('$')) return text;
+  const next = String(text).replace(
+    /\$([A-Za-z0-9_.\-']+)(?:\|[^$]*)?\$/g,
+    (whole, key) => view.loc(key) || key.replace(/_/g, ' '),
+  );
+  return next === text ? next : renderNested(view, next, depth + 1);
 }
 
 function stripMarkup(text) {

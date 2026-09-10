@@ -504,6 +504,20 @@ def load_localisation(sources, language="english"):
 
 
 _LOC_REF = re.compile(r"\$([A-Za-z0-9_.\-']+)(?:\|[^$]*)?\$")
+# Scripted-loc links: ['concept_x'] and scoped forms like ['technology:tech_x'].
+# These name a real loc key, so the filter has to follow them or the rendered
+# text loses the word entirely.
+_LOC_BRACKET = re.compile(r"\['([A-Za-z0-9_.:\-]+)'\]")
+
+
+def _referenced_keys(value):
+    keys = set(_LOC_REF.findall(value))
+    for raw in _LOC_BRACKET.findall(value):
+        name = raw.split(':')[-1]
+        keys.add(raw)
+        keys.add(name)
+        keys.add(f"concept_{name}")
+    return keys
 
 
 def collect_loc_keys(entities):
@@ -553,7 +567,7 @@ def resolve_loc(layered, seeds, max_depth=6):
         extra = set()
         for key in wanted:
             for _src, val in layered.get(key, ()):
-                extra.update(_LOC_REF.findall(val))
+                extra.update(_referenced_keys(val))
         new = extra - wanted
         if not new:
             break
@@ -662,6 +676,17 @@ ICON_CONVENTIONS = {
 }
 
 MAX_ICON_PX = 64
+
+TEXT_ICON_PATTERNS = (
+    "GFX_text_{}",
+    "GFX_text_resource_{}",
+    "GFX_{}",
+    "GFX_resource_{}",
+    "gfx/interface/icons/jobs/{}.dds",
+    "gfx/interface/icons/resources/{}.dds",
+    "gfx/interface/icons/modifiers/{}.dds",
+    "gfx/interface/icons/text_icons/icon_text_{}.dds",
+)
 
 
 def arr(value):
@@ -801,10 +826,16 @@ def resolve_icons(entities, loc_single, loc_multi, sprites, gfx):
     tokens = set()
     for value in list(loc_single.values()) + [v[-1][1] for v in loc_multi.values()]:
         tokens.update(re.findall(r"£([A-Za-z0-9_]+)", value))
+    # £token£ does not have one naming rule. Resources, jobs and modifiers each
+    # live somewhere different, and a token that resolves to nothing renders as
+    # a blank gap mid-sentence. This chain covers 163 of the 173 tokens the kept
+    # strings actually reference.
     for tok in tokens:
-        found = _lookup_icon(f"GFX_text_{tok}", sprites, gfx)
-        if found:
-            wanted["text_" + tok] = found
+        for pattern in TEXT_ICON_PATTERNS:
+            found = _lookup_icon(pattern.format(tok), sprites, gfx)
+            if found:
+                wanted["text_" + tok] = found
+                break
 
     return wanted, missing
 

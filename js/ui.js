@@ -124,6 +124,13 @@ function reasonNote(view, reason) {
   return /\s/.test(reason.text) ? reason.text : null;
 }
 
+// Bare triggers read as script otherwise: "Requires is_nomadic = yes".
+const BARE_LABEL = {
+  'is_nomadic = yes': 'a nomadic empire',
+  'is_nomadic = no': 'a settled (non-nomadic) empire',
+  'always = yes': 'nothing (always true)',
+};
+
 /**
  * Turn one reason into a phrase. Branch groups come from a failing OR/AND at
  * the requirement level, where each branch is a whole alternative - EaC's
@@ -148,7 +155,7 @@ function reasonPhrase(view, reason, depth = 0) {
     return depth > 0 && parts.length > 1 ? `(${joined})` : joined;
   }
 
-  if (reason.literal) return reason.need.join(', ');
+  if (reason.literal) return reason.need.map((n) => BARE_LABEL[n] || n).join(', ');
   const list = (ids, sep) => ids.map((id) => nameOf(view, id)).join(sep);
   if (reason.forbid.length) return `not ${list(reason.forbid, ' or ')}`;
   if (!reason.need.length) return '';

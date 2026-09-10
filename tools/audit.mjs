@@ -16,7 +16,7 @@ import { fileURLToPath } from 'node:url';
 import { buildView } from '../js/data.js';
 import { makeContext, evaluate, entityModifiers, traitCost } from '../js/rules.js';
 import { reasonText, nameOf } from '../js/ui.js';
-import { formatModifier, isPercentModifier } from '../js/loc.js';
+import { formatModifier, isPercentModifier, renderText } from '../js/loc.js';
 import { parseScript, readEmpire, parseEmpireDesigns } from '../js/empirefile.js';
 
 const VERBOSE = process.argv.includes('--verbose');
@@ -413,6 +413,66 @@ section('6. Display: names, icons, descriptions');
     note(`${dangling.size} referenced loc keys do not resolve (mod text gaps)`);
     if (VERBOSE) console.log(`          ${[...dangling].slice(0, 25).join(', ')}`);
   } else ok('every referenced description and tag key resolves');
+}
+
+// --------------------------------------------------------------------------
+
+section('6b. Rendered text is clean');
+{
+  // Every description and tag, rendered then stripped back to text. Markup that
+  // survives means a reference did not resolve, which the reader sees as a raw
+  // key or a gap mid-sentence.
+  const strip = (html) => html.replace(/<br>/g, String.fromCharCode(10)).replace(/<[^>]*>/g, '');
+  const counts = { dollar: [], bracket: [], pound: [], section: [] };
+  let rendered = 0;
+
+  for (const cat of ['ethics', 'authorities', 'civics', 'origins', 'species_traits', 'leader_traits']) {
+    for (const [id, ent] of fullView.cat[cat]) {
+      const bits = [];
+      if (ent.data.description) bits.push(fullView.loc(ent.data.description));
+      bits.push(fullView.loc(`${id}_desc`));
+      for (const tag of (ent.data.tags?.__list || [])) bits.push(fullView.loc(tag));
+      for (const raw of bits.filter(Boolean)) {
+        rendered += 1;
+        const out = strip(renderText(fullView, raw));
+        if (/\$[A-Za-z_]/.test(out)) counts.dollar.push(`${cat}/${id}`);
+        if (/\[[^\]]*\]/.test(out)) counts.bracket.push(`${cat}/${id}`);
+        if (out.includes('£')) counts.pound.push(`${cat}/${id}`);
+        if (out.includes('§')) counts.section.push(`${cat}/${id}`);
+      }
+    }
+  }
+
+  const labels = {
+    dollar: 'unresolved $KEY$ references',
+    bracket: 'unresolved [concept] links',
+    pound: 'stray icon delimiters',
+    section: 'stray colour codes',
+  };
+  let dirty = 0;
+  for (const [kind, hits] of Object.entries(counts)) {
+    if (hits.length) {
+      bad(`${hits.length} strings with ${labels[kind]}`, [...new Set(hits)].slice(0, 6).join(', '));
+      dirty += 1;
+    }
+  }
+  if (!dirty) ok(`${rendered} rendered strings contain no leftover markup`);
+
+  // An inline icon that resolves to nothing leaves a visible hole in a sentence.
+  const tokens = new Set();
+  const allValues = Object.values(db.loc.single)
+    .concat(Object.values(db.loc.multi).map((v) => v[v.length - 1][1]));
+  for (const value of allValues) {
+    for (const m of value.matchAll(/£([A-Za-z0-9_]+)/g)) tokens.add(m[1]);
+  }
+  const noSprite = [...tokens].filter((t) => !db.icons.cells[`text_${t}`]);
+  if (noSprite.length > 12) {
+    bad(`${noSprite.length} of ${tokens.size} inline icon tokens have no sprite`,
+      noSprite.slice(0, 10).join(', '));
+  } else {
+    ok(`${tokens.size - noSprite.length} of ${tokens.size} inline icon tokens resolve`);
+    if (noSprite.length) note(`no art shipped for: ${noSprite.join(', ')}`);
+  }
 }
 
 // --------------------------------------------------------------------------
