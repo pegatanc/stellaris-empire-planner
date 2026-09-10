@@ -18,6 +18,7 @@ const app = {
   contentSources: new Set(),
   sourceCounts: new Map(),
   search: {},
+  hideBlocked: false,
 };
 
 // --------------------------------------------------------------------------
@@ -136,6 +137,7 @@ function rerender({ rail = false } = {}) {
   ui.renderMain(app);
   ui.renderStats(app);
   if (rail) ui.renderRail(app);
+  ui.renderNav(app);
   renderValidityChip();
   syncHash();
 
@@ -240,51 +242,56 @@ app.issues = () => {
   const out = [];
   const label = (id) => ui.nameOf(view, id);
 
-  const check = (category, id, kind) => {
+  const check = (category, id, kind, section) => {
     if (!id) return;
     const entity = view.cat[category]?.get(id);
     if (!entity) {
-      out.push({ kind: 'error', label: label(id), text: `${kind} is not in the enabled data` });
+      out.push({ kind: 'error', section, label: label(id), text: `${kind} is not in the enabled data` });
       return;
     }
     const verdict = rules.evaluate(entity, ctx);
     if (!verdict.available) {
-      out.push({ kind: 'error', label: label(id), text: `${kind} is not offered with these picks` });
+      out.push({ kind: 'error', section, label: label(id), text: `${kind} is not offered with these picks` });
     } else if (!verdict.ok) {
-      out.push({ kind: 'error', label: label(id), text: describe(view, verdict.reasons) });
+      out.push({ kind: 'error', section, label: label(id), text: describe(view, verdict.reasons) });
     }
     if (verdict.unknown.length) {
       out.push({
         kind: 'warn',
+        section,
         label: label(id),
         text: `unverified — this tool cannot check ${verdict.unknown.join(', ')}`,
       });
     }
   };
 
-  check('authorities', build.authority, 'authority');
-  check('origins', build.origin, 'origin');
-  for (const id of build.civics) check('civics', id, 'civic');
+  check('authorities', build.authority, 'authority', 'authority');
+  check('origins', build.origin, 'origin', 'origin');
+  for (const id of build.civics) check('civics', id, 'civic', 'civics');
 
   for (const id of build.traits) {
     const entity = view.cat.species_traits.get(id);
     if (!entity) continue;
     const status = rules.traitStatus(entity, ctx);
-    if (!status.ok) out.push({ kind: 'error', label: label(id), text: describe(view, status.reasons) });
+    if (!status.ok) {
+      out.push({ kind: 'error', section: 'traits', label: label(id), text: describe(view, status.reasons) });
+    }
   }
 
   const pools = [
-    ['Ethic points', budgets.ethics],
-    ['Civics', budgets.civics],
-    ['Trait points', budgets.traitPoints],
-    ['Trait picks', budgets.traitPicks],
+    ['Ethic points', budgets.ethics, 'ethics'],
+    ['Civics', budgets.civics, 'civics'],
+    ['Trait points', budgets.traitPoints, 'traits'],
+    ['Trait picks', budgets.traitPicks, 'traits'],
   ];
-  for (const [name, pool] of pools) {
+  for (const [name, pool, section] of pools) {
     if (pool.used > pool.max) {
-      out.push({ kind: 'error', label: name, text: `over budget: ${pool.used} of ${pool.max}` });
+      out.push({ kind: 'error', section, label: name, text: `over budget: ${pool.used} of ${pool.max}` });
     }
   }
-  if (!build.authority) out.push({ kind: 'error', label: 'Authority', text: 'nothing selected' });
+  if (!build.authority) {
+    out.push({ kind: 'error', section: 'authority', label: 'Authority', text: 'nothing selected' });
+  }
 
   return out;
 };
@@ -362,6 +369,31 @@ function wireChrome() {
     button.addEventListener('click', () => applyPreset(button.dataset.preset));
   }
 
+  document.getElementById('chk-hide-blocked').addEventListener('change', (e) => {
+    app.hideBlocked = e.target.checked;
+    rerender();
+  });
+  document.getElementById('btn-rail').addEventListener('click', () => {
+    document.getElementById('rail').classList.toggle('open');
+  });
+  document.getElementById('btn-stats').addEventListener('click', () => {
+    document.getElementById('stats').classList.toggle('open');
+  });
+  document.getElementById('btn-reset').addEventListener('click', () => {
+    // Names and the mod selection are the expensive things to retype, so a
+    // reset clears the picks and leaves those alone.
+    const kept = {
+      name: app.build.name,
+      adjective: app.build.adjective,
+      shipPrefix: app.build.shipPrefix,
+      speciesName: app.build.speciesName,
+      speciesPlural: app.build.speciesPlural,
+      speciesAdjective: app.build.speciesAdjective,
+      dlcs: app.build.dlcs,
+    };
+    app.build = { ...defaultBuild(), ...kept };
+    rerender({ rail: true });
+  });
   document.getElementById('btn-validity').addEventListener('click', showIssues);
   document.getElementById('btn-export').addEventListener('click', showExport);
   document.getElementById('btn-save').addEventListener('click', showSave);

@@ -414,3 +414,58 @@ button { font: inherit; color: inherit; }
   font-size: 11px; line-height: 1.4; color: var(--ink-dim);
   padding-left: 8px; border-left: 2px solid var(--line);
 }
+
+/* ---------- section nav ---------- */
+
+.section-nav {
+  display: flex; align-items: center; gap: 10px;
+  padding: 6px 16px;
+  background: var(--bg-2);
+  border-bottom: 1px solid var(--line);
+  position: sticky; top: 0; z-index: 20;
+  overflow-x: auto;
+}
+.nav-pills { display: flex; gap: 4px; flex: 1; min-width: 0; }
+.nav-pill {
+  background: none; border: 1px solid transparent; border-radius: 999px;
+  padding: 3px 11px; font-size: 12px; color: var(--ink-dim);
+  cursor: pointer; white-space: nowrap;
+}
+.nav-pill:hover { color: var(--ink); border-color: var(--line); background: var(--bg-3); }
+.nav-pill.has-issue { color: var(--bad); }
+.nav-pill.has-issue::after {
+  content: ''; display: inline-block; width: 5px; height: 5px;
+  border-radius: 50%; background: var(--bad); margin-left: 5px; vertical-align: middle;
+}
+.nav-filter {
+  display: flex; align-items: center; gap: 5px;
+  font-size: 12px; color: var(--ink-dim); cursor: pointer; white-space: nowrap; flex: none;
+}
+.nav-filter input { accent-color: var(--accent); }
+.icon-btn {
+  background: var(--bg-3); border: 1px solid var(--line); border-radius: var(--radius);
+  padding: 3px 9px; font-size: 12px; cursor: pointer; white-space: nowrap; flex: none;
+}
+.icon-btn:hover { border-color: var(--accent-dim); }
+.only-narrow { display: none; }
+
+/* ---------- build summary ---------- */
+
+.picks { display: flex; flex-direction: column; gap: 6px; }
+.pick-row { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; }
+.pick-label {
+  font-size: 10px; text-transform: uppercase; letter-spacing: .6px;
+  color: var(--ink-faint); width: 100%;
+}
+.pick {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--bg-3); border: 1px solid var(--line-soft);
+  border-radius: 999px; padding: 2px 9px 2px 4px;
+  font-size: 11px; cursor: pointer; max-width: 100%;
+}
+.pick span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pick:not(.fixed):hover { border-color: var(--bad); color: var(--bad); }
+.pick.fixed { cursor: default; }
+
+@media (max-width: 1200px) { .only-narrow { display: inline-block; } }
+@media (max-width: 860px)  { .only-narrow { display: inline-block; } }

@@ -32,12 +32,23 @@
 
     <div class="topbar-actions">
       <button type="button" id="btn-validity" class="chip chip-status">Checking…</button>
+      <button type="button" id="btn-reset" class="btn">Reset</button>
       <button type="button" id="btn-save" class="btn">Save</button>
       <button type="button" id="btn-load" class="btn">Load</button>
       <button type="button" id="btn-compare" class="btn">Compare</button>
       <button type="button" id="btn-export" class="btn btn-primary">Export</button>
     </div>
   </header>
+
+  <nav class="section-nav" id="section-nav" aria-label="Jump to section">
+    <button type="button" class="icon-btn only-narrow" id="btn-rail" aria-label="Show mods">☰ Mods</button>
+    <div class="nav-pills" id="nav-pills"></div>
+    <label class="nav-filter">
+      <input type="checkbox" id="chk-hide-blocked">
+      <span>Hide unavailable</span>
+    </label>
+    <button type="button" class="icon-btn only-narrow" id="btn-stats" aria-label="Show summary">Stats</button>
+  </nav>
 
   <div class="layout">
 

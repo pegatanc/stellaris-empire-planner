@@ -275,6 +275,7 @@ function pickableList(app, category, { originsOnly = false } = {}) {
         ? app.build.authority === id
         : app.build.civics.has(id);
     if (!verdict.available && !selected) continue;
+    if (app.hideBlocked && !verdict.ok && !selected) continue;
     out.push({ id, entity, verdict, selected });
   }
   out.sort((a, b) => Number(b.selected) - Number(a.selected)
@@ -609,6 +610,7 @@ function renderSpeciesTraits(app) {
     const status = rules.traitStatus(entity, ctx);
     const selected = build.traits.has(id);
     if (!status.available && !selected) continue;
+    if (app.hideBlocked && !status.ok && !selected) continue;
     items.push({ id, entity, status, selected, cost: rules.traitCost(entity) });
   }
 
@@ -924,27 +926,61 @@ function rulerTitleHint(view, best) {
 // Top-level renders
 // --------------------------------------------------------------------------
 
+export const SECTIONS = [
+  ['identity', 'Species'],
+  ['ethics', 'Ethics'],
+  ['authority', 'Authority'],
+  ['origin', 'Origin'],
+  ['civics', 'Civics'],
+  ['traits', 'Traits'],
+  ['homeworld', 'Homeworld'],
+  ['ruler', 'Ruler'],
+  ['rulerTraits', 'Ruler traits'],
+];
+
 export function renderMain(app) {
   const main = document.getElementById('main');
-  main.replaceChildren(
-    renderIdentity(app),
-    renderEthics(app),
-    renderChoice(app, {
+  const built = [
+    ['identity', renderIdentity(app)],
+    ['ethics', renderEthics(app)],
+    ['authority', renderChoice(app, {
       key: 'authority', title: 'Authority', category: 'authorities',
       selectedId: app.build.authority,
       onPick: (id) => app.set('authority', id),
-    }),
-    renderChoice(app, {
+    })],
+    ['origin', renderChoice(app, {
       key: 'origin', title: 'Origin', category: 'origins',
       selectedId: app.build.origin,
       onPick: (id) => app.set('origin', id),
-    }),
-    renderCivics(app),
-    renderSpeciesTraits(app),
-    renderHomeworld(app),
-    renderRuler(app),
-    renderRulerTraits(app),
-  );
+    })],
+    ['civics', renderCivics(app)],
+    ['traits', renderSpeciesTraits(app)],
+    ['homeworld', renderHomeworld(app)],
+    ['ruler', renderRuler(app)],
+    ['rulerTraits', renderRulerTraits(app)],
+  ];
+  for (const [key, node] of built) node.id = `sec-${key}`;
+  main.replaceChildren(...built.map(([, node]) => node));
+}
+
+/** Jump-to-section pills, with a dot on any section holding a problem. */
+export function renderNav(app) {
+  const holder = document.getElementById('nav-pills');
+  const trouble = new Set();
+  for (const issue of app.issues()) {
+    if (issue.section) trouble.add(issue.section);
+  }
+  holder.replaceChildren(...SECTIONS.map(([key, label]) => el('button', {
+    type: 'button',
+    class: `nav-pill${trouble.has(key) ? ' has-issue' : ''}`,
+    onclick: () => {
+      const target = document.getElementById(`sec-${key}`);
+      if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    },
+  }, label)));
+
+  const checkbox = document.getElementById('chk-hide-blocked');
+  if (checkbox.checked !== app.hideBlocked) checkbox.checked = app.hideBlocked;
 }
 
 export function renderBudgets(app) {
@@ -969,13 +1005,55 @@ function round(n) {
   return Math.round(n * 100) / 100;
 }
 
+/** A compact picture of the build, so you never scroll to see what you picked. */
+function renderPicks(app) {
+  const { view, build } = app;
+  const box = el('div', { class: 'picks' });
+
+  const chip = (id, onRemove) => {
+    const node = el('button', {
+      type: 'button',
+      class: `pick${onRemove ? '' : ' fixed'}`,
+      title: onRemove ? `${nameOf(view, id)} - click to remove` : nameOf(view, id),
+      onclick: () => { if (onRemove) onRemove(); },
+    });
+    const style = iconStyle(view, id, 18);
+    const icon = el('i', { class: 'ethic-ico' });
+    if (style) icon.setAttribute('style', style);
+    node.append(icon, el('span', {}, nameOf(view, id)));
+    return node;
+  };
+
+  const row = (label, ids, onRemove) => {
+    if (!ids.length) return;
+    const line = el('div', { class: 'pick-row' }, el('span', { class: 'pick-label' }, label));
+    for (const id of ids) line.append(chip(id, onRemove && (() => onRemove(id))));
+    box.append(line);
+  };
+
+  row('Ethics', [...build.ethics], (id) => app.toggleEthic(id));
+  row('Authority', build.authority ? [build.authority] : []);
+  row('Origin', build.origin ? [build.origin] : []);
+  row('Civics', [...build.civics], (id) => app.toggleCivic(id));
+  row('Traits', [...build.traits], (id) => app.toggleTrait(id));
+  row('Ruler', [...build.rulerTraits], (id) => app.toggleRulerTrait(id));
+
+  if (!box.children.length) {
+    box.append(el('p', { class: 'hint' }, 'Nothing picked yet.'));
+  }
+  return box;
+}
+
 export function renderStats(app) {
   const { view } = app;
   const holder = document.getElementById('stats');
   const nodes = [];
 
+  nodes.push(el('h2', {}, 'Your empire'));
+  nodes.push(renderPicks(app));
+
   const issues = app.issues();
-  nodes.push(el('h2', {}, 'Validation'));
+  nodes.push(el('h2', { style: 'margin-top:18px' }, 'Validation'));
   if (!issues.length) {
     nodes.push(el('p', { class: 'hint' }, 'Every pick satisfies its requirements.'));
   } else {

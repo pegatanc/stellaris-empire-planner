@@ -27,7 +27,15 @@ actually accept and why. Export a block you can paste straight into your own
   spokes automatically, so Ethics and Civics Classic's six axes render as a
   twelve-spoke wheel with `Singular Purpose` and `Gestalt Consciousness` in the
   hub.
+- **The actual numbers.** Every ethic, authority, civic, origin and trait lists
+  its own modifiers, and authorities add their governance rules (election type
+  and term, succession, mandates, agendas). The `tags` block is rendered too -
+  that is where the game keeps unlocks the modifiers cannot express, like
+  Ecocentrist's Waste Recycling or Industrialist's Thermal Borehole.
 - **Live modifier totals** across ethics, authority, origin, civics and traits.
+- **Getting around**: sticky section jump-links that mark which section holds a
+  problem, a "hide unavailable" filter that cuts 168 civics to the ~50 you can
+  actually take, and a running summary of your picks you can click to remove.
 - **Export** to a playable empire block, a share link (the whole build is in the
   URL — no backend), a Markdown build sheet, or JSON.
 - **Import** from a share link or straight from a block of your saved designs.
@@ -70,12 +78,26 @@ Then check nothing regressed:
 
 ```bash
 node tools/verify.mjs
+node tools/audit.mjs
 ```
 
-That suite pins the vanilla merge (281 civics, 77 origins, 17 ethics, 8
-authorities), the mod override behaviour and the point budgets, and — most
-usefully — cross-checks the evaluator against the empires already saved in your
-own `user_empire_designs_v3.4.txt`.
+`verify.mjs` pins behaviour with hand-written cases: the vanilla merge (281
+civics, 77 origins, 17 ethics, 8 authorities), the mod override behaviour, the
+point budgets, and a cross-check against the empires already saved in your own
+`user_empire_designs_v3.4.txt`.
+
+`audit.mjs` goes the other way — it re-reads the raw game and mod files and
+compares them against what the planner ships and renders, across every entity
+rather than a sample. It currently reports:
+
+- every ethics, authority, civic, species, shipset and planet file on disk is indexed
+- no unresolved `@variables`, unexpanded `inline_script`s or leftover `$PARAM$`s
+- **3360 modifier numbers match their source files exactly**
+- 53 of the 55 prescripted empires the game and mods ship validate; the other
+  two are the mods' own inconsistencies, pinned as known so the set changing
+  still raises a flag
+- every blocked pick explains itself — 0 undescribed clauses across 1195
+  blocked verdicts
 
 ## How the merge works
 
@@ -104,8 +126,15 @@ filename.
 - **Species portraits are not shown.** `gfx/models/portraits/` is 372 MB of 3D
   diffuse/normal/spec textures, not flat art. Portraits are selectable by id;
   species identity is conveyed by class and shipset instead.
-- **Conditional modifiers are ignored** in the totals panel — `triggered_*`
-  modifier blocks depend on in-game state the designer does not have.
+- **Conditional modifiers are marked, not merged.** A `triggered_country_modifier`
+  whose condition the designer can decide (`is_nomadic`, an ethic, a civic) counts
+  toward the totals; one that depends on in-game state is shown greyed and
+  labelled rather than silently added.
+- **Percentage vs flat is inferred.** Stellaris ships no file declaring which
+  modifiers are percentages, and the `_mult` / `_add` suffix rule leaves 146
+  legacy keys undecided. The extractor infers each key's kind from the values the
+  game actually ships. If a number ever looks off by 100×, that table is the
+  place to look.
 - Data is a snapshot of one install. Re-run the extractor when things change.
 
 ## Assets and attribution
@@ -132,5 +161,6 @@ js/empirefile.js      reading and writing user_empire_designs
 js/main.js            state and wiring
 tools/extract.py      the extractor
 tools/clausewitz.py   Clausewitz parser (run it directly for a self-check)
-tools/verify.mjs      the test suite
+tools/verify.mjs      behavioural test suite
+tools/audit.mjs       whole-dataset check against the raw game files
 ```
