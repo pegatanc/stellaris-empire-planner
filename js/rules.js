@@ -102,7 +102,11 @@ function categoryNode(node, have, unknown, category, mode = 'AND') {
     }
   }
 
-  if (!results.length) return true;
+  // An empty block: AND over nothing is satisfied, OR over nothing is not.
+  // This matters through negation - Ethics and Civics Classic ships
+  // `civics = { NOT = {} }` on civic_feudal_realm, and reading the empty OR as
+  // true made the NOT false and the civic permanently unpickable.
+  if (!results.length) return mode !== 'OR';
   return mode === 'OR' ? results.some(Boolean) : results.every(Boolean);
 }
 
@@ -142,7 +146,11 @@ export function evalRequirement(node, ctx, unknown, mode = 'AND') {
     }
   }
 
-  if (!results.length) return true;
+  // An empty block: AND over nothing is satisfied, OR over nothing is not.
+  // This matters through negation - Ethics and Civics Classic ships
+  // `civics = { NOT = {} }` on civic_feudal_realm, and reading the empty OR as
+  // true made the NOT false and the civic permanently unpickable.
+  if (!results.length) return mode !== 'OR';
   return mode === 'OR' ? results.some(Boolean) : results.every(Boolean);
 }
 
@@ -182,7 +190,11 @@ export function evalTrigger(node, ctx, unknown, mode = 'AND') {
     }
   }
 
-  if (!results.length) return true;
+  // An empty block: AND over nothing is satisfied, OR over nothing is not.
+  // This matters through negation - Ethics and Civics Classic ships
+  // `civics = { NOT = {} }` on civic_feudal_realm, and reading the empty OR as
+  // true made the NOT false and the civic permanently unpickable.
+  if (!results.length) return mode !== 'OR';
   return mode === 'OR' ? results.some(Boolean) : results.every(Boolean);
 }
 
@@ -471,7 +483,11 @@ export function evalGovernmentTrigger(node, ctx, unknown, mode = 'AND') {
     }
   }
 
-  if (!results.length) return true;
+  // An empty block: AND over nothing is satisfied, OR over nothing is not.
+  // This matters through negation - Ethics and Civics Classic ships
+  // `civics = { NOT = {} }` on civic_feudal_realm, and reading the empty OR as
+  // true made the NOT false and the civic permanently unpickable.
+  if (!results.length) return mode !== 'OR';
   return mode === 'OR' ? results.some(Boolean) : results.every(Boolean);
 }
 

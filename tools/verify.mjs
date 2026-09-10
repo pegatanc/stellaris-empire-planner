@@ -268,6 +268,22 @@ section('5b. a failing OR is described as alternatives, not as "OR"');
   }
 }
 
+section('5c. an empty NOT block does not lock an entry out');
+{
+  // Ethics and Civics Classic ships `civics = { NOT = {} }` on civic_feudal_realm.
+  // Reading the empty inner OR as true made the NOT false, which would have made
+  // the civic permanently unpickable.
+  const view = buildView(db, new Set(['base', '1100284147']));
+  const feudal = view.cat.civics.get('civic_feudal_realm');
+  const ctx = makeContext(view, makeBuild({
+    authority: 'auth_imperial',
+    ethics: new Set(['ethic_authoritarian']),
+  }));
+  const verdict = evaluate(feudal, ctx);
+  check('feudal realm is pickable for an authoritarian imperial', verdict.ok,
+    JSON.stringify(verdict.reasons));
+}
+
 section('6. lowercase nor/not in Government Variety Pack still evaluate');
 {
   const view = buildView(db, new Set(['base', '2806903835']));
