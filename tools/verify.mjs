@@ -22,7 +22,7 @@ import { parseEmpireDesigns, serializeEmpire, readEmpire, parseScript } from '..
 import { rollEmpire, FLAVOURS } from '../js/roll.js';
 import { buildIndex, invalidateIndex } from '../js/effects.js';
 import { modifierTone } from '../js/loc.js';
-import { matchesSearch } from '../js/ui.js';
+import { matchesSearch, SECTIONS } from '../js/ui.js';
 
 // The browser modules use document for plain-text extraction of loc strings.
 globalThis.document = {
@@ -777,6 +777,31 @@ section('14. filtering searches descriptions, not just names');
   check('but a search still matches it',
     matchesSearch(app, 't', view, 'civic_indentured_assets', 'civics'));
   check('nonsense matches nothing', find('zzzznotathing', 'civics', civics).length === 0);
+
+  // Section keys are the anchor for both `sec-${key}` and `app.search[key]`, so
+  // a duplicate would make one section's filter rebuild another's list.
+  const sectionKeys = SECTIONS.map(([key]) => key);
+  check('section keys are unique',
+    new Set(sectionKeys).size === sectionKeys.length, sectionKeys.join());
+
+  // Ruler traits filter over leader_traits, a category nothing else searches.
+  // Its box used to write to app.search.ruler while the section is registered
+  // as 'rulerTraits', so every keystroke rebuilt the Ruler panel instead and
+  // the list never filtered. Pin the key and the category together.
+  const rulerTraits = [...view.cat.leader_traits.keys()]
+    .filter((id) => view.cat.leader_traits.get(id).data.starting_ruler_trait === 'yes');
+  check('there are ruler traits to filter', rulerTraits.length > 10, rulerTraits.length + ' traits');
+  const rulerFind = (term) => {
+    app.search.rulerTraits = term;
+    return rulerTraits.filter((id) => matchesSearch(app, 'rulerTraits', view, id, 'leader_traits'));
+  };
+  check('a ruler trait is found by its own name',
+    rulerFind('charismatic').includes('trait_ruler_charismatic'),
+    rulerFind('charismatic').join());
+  check('a ruler-trait filter excludes the rest',
+    rulerFind('charismatic').length < rulerTraits.length);
+  check('nonsense matches no ruler trait', rulerFind('zzzznotathing').length === 0);
+  app.search.rulerTraits = '';
 
   // Building the index for everything must stay cheap enough to do on demand.
   const started = Date.now();

@@ -270,6 +270,16 @@ function card(app, { id, entity, selected, verdict, cost, onPick, extraNote, cat
 }
 
 function sectionShell(app, { key, title, count, searchable }) {
+  // `key` is the section's own key, handed down from SECTION_BUILDERS rather
+  // than written out here: the filter box stores under `app.search[key]` and
+  // then asks for `sec-${key}` to be rebuilt, so a key belonging to another
+  // section leaves this list unfiltered while rebuilding that one. Ruler traits
+  // used to spell 'ruler' here - a real section key, just not its own - and its
+  // filter silently did nothing.
+  if (!SECTIONS.some(([id]) => id === key)) {
+    throw new Error(`sectionShell: "${key}" is not a section key`);
+  }
+
   const head = el('div', { class: 'section-head' },
     el('h2', {}, title),
     count !== undefined ? el('span', { class: 'count' }, count) : null);
@@ -642,16 +652,16 @@ function renderChoice(app, { key, title, category, selectedId, onPick, countLabe
   return node;
 }
 
-function renderCivics(app) {
+function renderCivics(app, key) {
   const { view, build, budgets } = app;
   const { node, grid } = sectionShell(app, {
-    key: 'civics', title: 'Civics',
+    key, title: 'Civics',
     count: `${budgets.civics.used} / ${budgets.civics.max}`,
     searchable: true,
   });
 
-  const items = pickableList(app, 'civics', { searching: isSearching(app, 'civics') })
-    .filter((x) => matchesSearch(app, 'civics', view, x.id, 'civics'));
+  const items = pickableList(app, 'civics', { searching: isSearching(app, key) })
+    .filter((x) => matchesSearch(app, key, view, x.id, 'civics'));
 
   const atLimit = budgets.civics.used >= budgets.civics.max;
   for (const item of items) {
@@ -673,12 +683,12 @@ function renderCivics(app) {
   return node;
 }
 
-function renderSpeciesTraits(app) {
+function renderSpeciesTraits(app, key) {
   const { view, build, budgets, ctx } = app;
   const forced = rules.forcedTraits(view, build);
 
   const { node, grid } = sectionShell(app, {
-    key: 'traits',
+    key,
     title: 'Species traits',
     count: `${budgets.traitPoints.used} / ${budgets.traitPoints.max} points · ${budgets.traitPicks.used} / ${budgets.traitPicks.max} picks`,
     searchable: true,
@@ -705,10 +715,10 @@ function renderSpeciesTraits(app) {
   for (const [id, entity] of view.cat.species_traits) {
     if (forced.locked.has(id)) continue;
     if (!rules.traitIsSelectable(entity)) continue;
-    if (!matchesSearch(app, 'traits', view, id, 'species_traits')) continue;
+    if (!matchesSearch(app, key, view, id, 'species_traits')) continue;
     const status = rules.traitStatus(entity, ctx);
     const selected = build.traits.has(id);
-    if (!status.available && !selected && !isSearching(app, 'traits')) continue;
+    if (!status.available && !selected && !isSearching(app, key)) continue;
     if (app.hideBlocked && !status.ok && !selected) continue;
     items.push({ id, entity, status, selected, cost: rules.traitCost(entity) });
   }
@@ -744,10 +754,10 @@ function renderSpeciesTraits(app) {
   return node;
 }
 
-function renderRulerTraits(app) {
+function renderRulerTraits(app, key) {
   const { view, build, ctx } = app;
   const { node, grid } = sectionShell(app, {
-    key: 'ruler', title: 'Ruler traits',
+    key, title: 'Ruler traits',
     count: `${build.rulerTraits.size} selected`,
     searchable: true,
   });
@@ -759,7 +769,7 @@ function renderRulerTraits(app) {
   const items = [];
   for (const [id, entity] of view.cat.leader_traits) {
     if (entity.data.starting_ruler_trait !== 'yes') continue;
-    if (!matchesSearch(app, 'ruler', view, id, 'leader_traits')) continue;
+    if (!matchesSearch(app, key, view, id, 'leader_traits')) continue;
     const forbidden = arr(entity.data.forbidden_origins?.__list);
     const allowed = arr(entity.data.allowed_origins?.__list);
     const reasons = [];
@@ -1174,29 +1184,35 @@ export const SECTIONS = [
 // One builder per section, so a single section can be rebuilt on its own. A
 // search only changes what one list shows, and rebuilding all ten sections for
 // every keystroke was most of the cost of typing.
+//
+// Each builder is handed the key it is registered under and passes that same
+// key on to sectionShell and to its own matchesSearch calls. Nothing spells a
+// section key out by hand, so a filter box cannot end up keyed to a section
+// other than the one it sits in - which is how the ruler-trait filter came to
+// rebuild the Ruler panel on every keystroke and never filter itself.
 const SECTION_BUILDERS = {
   identity: (app) => renderIdentity(app),
   ethics: (app) => renderEthics(app),
-  authority: (app) => renderChoice(app, {
-    key: 'authority', title: 'Authority', category: 'authorities',
+  authority: (app, key) => renderChoice(app, {
+    key, title: 'Authority', category: 'authorities',
     selectedId: app.build.authority,
     onPick: (id) => app.set('authority', id),
   }),
-  origin: (app) => renderChoice(app, {
-    key: 'origin', title: 'Origin', category: 'origins',
+  origin: (app, key) => renderChoice(app, {
+    key, title: 'Origin', category: 'origins',
     selectedId: app.build.origin,
     onPick: (id) => app.set('origin', id),
   }),
-  civics: (app) => renderCivics(app),
-  traits: (app) => renderSpeciesTraits(app),
+  civics: (app, key) => renderCivics(app, key),
+  traits: (app, key) => renderSpeciesTraits(app, key),
   secondary: (app) => renderSecondarySpecies(app),
   homeworld: (app) => renderHomeworld(app),
   ruler: (app) => renderRuler(app),
-  rulerTraits: (app) => renderRulerTraits(app),
+  rulerTraits: (app, key) => renderRulerTraits(app, key),
 };
 
 function buildSection(app, key) {
-  const node = SECTION_BUILDERS[key](app);
+  const node = SECTION_BUILDERS[key](app, key);
   node.id = `sec-${key}`;
   return node;
 }
