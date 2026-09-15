@@ -58,6 +58,17 @@ async function boot() {
   rerender({ rail: true });
   document.getElementById('loading').hidden = true;
   document.getElementById('app').hidden = false;
+
+  // `index.html?selftest=render` checks that the render cache never serves
+  // stale markup. Loaded on demand, so a normal visit never fetches it.
+  if (new URLSearchParams(location.search).get('selftest') === 'render') {
+    const { runRenderSelfTest } = await import('./selftest.js');
+    const params = new URLSearchParams(location.search);
+    runRenderSelfTest(app, {
+      rounds: Number(params.get('rounds')) || undefined,
+      seed: Number(params.get('seed')) || undefined,
+    });
+  }
 }
 
 function countBySource(db) {

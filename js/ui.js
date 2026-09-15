@@ -207,7 +207,7 @@ function provenanceLine(app, category, id) {
 // Cards
 // --------------------------------------------------------------------------
 
-function card(app, { id, entity, selected, verdict, cost, onPick, extraNote, category }) {
+function card(app, { id, entity, selected, verdict, cost, onPick, extraNote, category, whyOverride }) {
   const { view } = app;
   // `available: false` means the empire is never offered this at all, which is
   // just as unpickable as failing `possible` - and a search now surfaces those,
@@ -243,9 +243,12 @@ function card(app, { id, entity, selected, verdict, cost, onPick, extraNote, cat
   if (tags) body.append(tags);
 
   if (blocked) {
+    // A budget blocker says its own thing ("No civic slots left") rather than
+    // the requirement text, which would be misleading - the pick is legal, you
+    // just have nowhere to put it.
     const why = verdict.reasons.slice(0, 2).map((r) => reasonText(view, r)).join(' · ');
     body.append(el('div', { class: 'why' },
-      why || (verdict.available === false
+      whyOverride || why || (verdict.available === false
         ? 'Not offered to this kind of empire'
         : 'Requirements not met')));
   }
@@ -267,6 +270,65 @@ function card(app, { id, entity, selected, verdict, cost, onPick, extraNote, cat
   }, iconNode(view, id), body);
 
   return node;
+}
+
+// --------------------------------------------------------------------------
+// Section plans
+// --------------------------------------------------------------------------
+
+/**
+ * A card-grid section is built in two steps: a *plan* works out which rows to
+ * show and everything about them that depends on the build, then the builder
+ * turns that plan into DOM. Splitting it that way lets a rerender ask "would
+ * this section come out the same?" without paying to build it - picking a
+ * civic rebuilt all ten sections and roughly 12,000 nodes, and almost none of
+ * them had changed.
+ *
+ * The signature is derived from the very value the builder renders, so the two
+ * cannot drift: anything that would show up in the DOM shows up here first.
+ * The static half of a card - name, description, facts, tags, provenance, icon
+ * - is a function of the view alone, so the enabled-source token covers it.
+ */
+function cardFingerprint(app, item) {
+  const { ctx } = app;
+  const { id, entity, selected, verdict, cost, extraNote, whyOverride } = item;
+  const out = [id, selected ? 1 : 0, cost ?? '', extraNote ?? '', whyOverride ?? ''];
+
+  if (verdict) {
+    const blocked = !verdict.ok || verdict.available === false;
+    out.push(blocked ? 1 : 0, verdict.unknown.slice(0, 3).join(','));
+    // `card` only renders the reasons when the card is blocked, so only then do
+    // they change the markup. The reasons go in raw rather than rendered:
+    // `reasonText` is a pure function of the view and the reason, so equal
+    // reasons give equal text, and rendering a few hundred of them purely to
+    // decide whether to skip a rebuild costs more than it saves.
+    if (blocked) {
+      for (const r of verdict.reasons.slice(0, 2)) {
+        out.push(`${r.category}/${r.mode}/${r.text ?? ''}/${arr(r.need).join('+')}/${arr(r.forbid).join('+')}`);
+      }
+    }
+  }
+
+  // Triggered modifier blocks are evaluated against the build, so the rows a
+  // card shows can change while its verdict stays exactly the same.
+  const { active, conditional, tooltips } = rules.entityModifiers(entity, ctx);
+  for (const m of active) out.push(`+${m.key}=${m.value}`);
+  for (const m of conditional) out.push(`?${m.key}=${m.value}:${m.state}`);
+  if (tooltips.length) out.push(`t:${tooltips.join(',')}`);
+
+  return out.join('\u0002');
+}
+
+function planSignature(app, key, plan) {
+  const parts = [
+    [...app.enabledSources].sort().join('|'),
+    app.search[key] || '',
+    app.hideBlocked ? 1 : 0,
+    plan.count ?? '',
+  ];
+  for (const item of plan.granted || []) parts.push(`g:${item.id}:${item.extraNote}`);
+  for (const item of plan.items) parts.push(cardFingerprint(app, item));
+  return parts.join('\u0001');
 }
 
 function sectionShell(app, { key, title, count, searchable }) {
@@ -631,84 +693,102 @@ export function fillEthicDetail(app, detail) {
   detail.replaceChildren(...nodes);
 }
 
-function renderChoice(app, { key, title, category, selectedId, onPick, countLabel }) {
+const CHOICES = {
+  authority: {
+    title: 'Authority',
+    category: 'authorities',
+    selectedId: (app) => app.build.authority,
+    onPick: (app, id) => app.set('authority', id),
+  },
+  origin: {
+    title: 'Origin',
+    category: 'origins',
+    selectedId: (app) => app.build.origin,
+    onPick: (app, id) => app.set('origin', id),
+  },
+};
+
+function choicePlan(app, key) {
   const { view } = app;
+  const cfg = CHOICES[key];
+  const chosen = cfg.selectedId(app);
+  const items = pickableList(app, cfg.category, { searching: isSearching(app, key) })
+    .filter((x) => matchesSearch(app, key, view, x.id, cfg.category))
+    .map((x) => ({ id: x.id, entity: x.entity, verdict: x.verdict, selected: x.id === chosen }));
+  return { items };
+}
+
+function renderChoice(app, key, plan) {
+  const cfg = CHOICES[key];
   const { node, grid } = sectionShell(app, {
-    key, title, count: countLabel, searchable: true,
+    key, title: cfg.title, count: plan.count, searchable: true,
   });
-  const items = pickableList(app, category, { searching: isSearching(app, key) })
-    .filter((x) => matchesSearch(app, key, view, x.id, category));
-  for (const item of items) {
+  for (const item of plan.items) {
     grid.append(card(app, {
       id: item.id,
       entity: item.entity,
-      selected: item.id === selectedId,
+      selected: item.selected,
       verdict: item.verdict,
-      category,
-      onPick: () => onPick(item.id),
+      category: cfg.category,
+      onPick: () => cfg.onPick(app, item.id),
     }));
   }
-  if (!items.length) grid.append(el('p', { class: 'empty' }, 'Nothing available with the current picks.'));
+  if (!plan.items.length) grid.append(el('p', { class: 'empty' }, 'Nothing available with the current picks.'));
   return node;
 }
 
-function renderCivics(app, key) {
+function civicsPlan(app, key) {
   const { view, build, budgets } = app;
-  const { node, grid } = sectionShell(app, {
-    key, title: 'Civics',
-    count: `${budgets.civics.used} / ${budgets.civics.max}`,
-    searchable: true,
-  });
-
-  const items = pickableList(app, 'civics', { searching: isSearching(app, key) })
-    .filter((x) => matchesSearch(app, key, view, x.id, 'civics'));
-
   const atLimit = budgets.civics.used >= budgets.civics.max;
-  for (const item of items) {
-    const selected = build.civics.has(item.id);
-    const verdict = (!selected && atLimit && item.verdict.ok)
-      ? { ...item.verdict, ok: false, reasons: [{ category: 'civics', text: null, need: [], forbid: [], mode: 'all' }] }
-      : item.verdict;
-    const node2 = card(app, {
-      id: item.id, entity: item.entity, selected, verdict, category: 'civics',
-      onPick: () => app.toggleCivic(item.id),
+  const items = pickableList(app, 'civics', { searching: isSearching(app, key) })
+    .filter((x) => matchesSearch(app, key, view, x.id, 'civics'))
+    .map((x) => {
+      const selected = build.civics.has(x.id);
+      const outOfSlots = !selected && atLimit && x.verdict.ok;
+      return {
+        id: x.id,
+        entity: x.entity,
+        selected,
+        verdict: outOfSlots
+          ? { ...x.verdict, ok: false, reasons: [{ category: 'civics', text: null, need: [], forbid: [], mode: 'all' }] }
+          : x.verdict,
+        whyOverride: outOfSlots ? 'No civic slots left' : null,
+      };
     });
-    if (!selected && atLimit && item.verdict.ok) {
-      const why = node2.querySelector('.why');
-      if (why) why.textContent = 'No civic slots left';
-    }
-    grid.append(node2);
+  return { count: `${budgets.civics.used} / ${budgets.civics.max}`, items };
+}
+
+function renderCivics(app, key, plan) {
+  const { node, grid } = sectionShell(app, {
+    key, title: 'Civics', count: plan.count, searchable: true,
+  });
+  for (const item of plan.items) {
+    grid.append(card(app, {
+      id: item.id, entity: item.entity, selected: item.selected,
+      verdict: item.verdict, whyOverride: item.whyOverride, category: 'civics',
+      onPick: () => app.toggleCivic(item.id),
+    }));
   }
-  if (!items.length) grid.append(el('p', { class: 'empty' }, 'No civics available for this government.'));
+  if (!plan.items.length) grid.append(el('p', { class: 'empty' }, 'No civics available for this government.'));
   return node;
 }
 
-function renderSpeciesTraits(app, key) {
+function traitsPlan(app, key) {
   const { view, build, budgets, ctx } = app;
   const forced = rules.forcedTraits(view, build);
 
-  const { node, grid } = sectionShell(app, {
-    key,
-    title: 'Species traits',
-    count: `${budgets.traitPoints.used} / ${budgets.traitPoints.max} points · ${budgets.traitPicks.used} / ${budgets.traitPicks.max} picks`,
-    searchable: true,
-  });
-
-  if (forced.locked.size || forced.soft.size) {
-    const chips = el('div', { class: 'card-grid' });
-    for (const [id, from] of [...forced.locked, ...forced.soft]) {
-      const entity = view.cat.species_traits.get(id);
-      if (!entity) continue;
-      chips.append(card(app, {
-        id, entity, selected: true, verdict: { ok: true, unknown: [], reasons: [] },
-        cost: 0, category: 'species_traits',
-        extraNote: `granted by ${from}${forced.soft.has(id) ? ' (removable)' : ' (locked)'}`,
-        onPick: () => {},
-      }));
-    }
-    if (chips.children.length) {
-      node.append(el('p', { class: 'hint' }, 'Granted automatically:'), chips);
-    }
+  const granted = [];
+  for (const [id, from] of [...forced.locked, ...forced.soft]) {
+    const entity = view.cat.species_traits.get(id);
+    if (!entity) continue;
+    granted.push({
+      id,
+      entity,
+      selected: true,
+      verdict: { ok: true, unknown: [], reasons: [] },
+      cost: 0,
+      extraNote: `granted by ${from}${forced.soft.has(id) ? ' (removable)' : ' (locked)'}`,
+    });
   }
 
   const items = [];
@@ -729,43 +809,63 @@ function renderSpeciesTraits(app, key) {
     || nameOf(view, a.id).localeCompare(nameOf(view, b.id)));
 
   const pickRoom = budgets.traitPicks.used < budgets.traitPicks.max;
-  for (const item of items) {
+  const rows = items.map((item) => {
     let verdict = item.status;
+    let whyOverride = null;
     if (!item.selected && verdict.ok) {
-      if (!pickRoom) {
+      const noRoom = !pickRoom;
+      const tooDear = item.cost > 0
+        && budgets.traitPoints.used + item.cost > budgets.traitPoints.max;
+      if (noRoom || tooDear) {
         verdict = { ...verdict, ok: false, reasons: [{ category: 'traits', text: null, need: [], forbid: [], mode: 'all' }] };
-      } else if (item.cost > 0 && budgets.traitPoints.used + item.cost > budgets.traitPoints.max) {
-        verdict = { ...verdict, ok: false, reasons: [{ category: 'traits', text: null, need: [], forbid: [], mode: 'all' }] };
+        whyOverride = pickRoom ? 'Not enough trait points' : 'No trait picks left';
       }
     }
-    const node2 = card(app, {
+    return {
       id: item.id, entity: item.entity, selected: item.selected,
-      verdict, cost: item.cost, category: 'species_traits',
-      onPick: () => app.toggleTrait(item.id),
-    });
-    if (!item.selected && item.status.ok && !verdict.ok) {
-      const why = node2.querySelector('.why');
-      if (why) why.textContent = pickRoom ? 'Not enough trait points' : 'No trait picks left';
+      verdict, cost: item.cost, whyOverride,
+    };
+  });
+
+  return {
+    count: `${budgets.traitPoints.used} / ${budgets.traitPoints.max} points · ${budgets.traitPicks.used} / ${budgets.traitPicks.max} picks`,
+    granted,
+    items: rows,
+  };
+}
+
+function renderSpeciesTraits(app, key, plan) {
+  const { node, grid } = sectionShell(app, {
+    key, title: 'Species traits', count: plan.count, searchable: true,
+  });
+
+  if (plan.granted.length) {
+    const chips = el('div', { class: 'card-grid' });
+    for (const item of plan.granted) {
+      chips.append(card(app, {
+        id: item.id, entity: item.entity, selected: true, verdict: item.verdict,
+        cost: item.cost, category: 'species_traits', extraNote: item.extraNote,
+        onPick: () => {},
+      }));
     }
-    grid.append(node2);
+    node.append(el('p', { class: 'hint' }, 'Granted automatically:'), chips);
   }
 
-  if (!items.length) grid.append(el('p', { class: 'empty' }, 'No traits available for this archetype.'));
+  for (const item of plan.items) {
+    grid.append(card(app, {
+      id: item.id, entity: item.entity, selected: item.selected,
+      verdict: item.verdict, cost: item.cost, whyOverride: item.whyOverride,
+      category: 'species_traits',
+      onPick: () => app.toggleTrait(item.id),
+    }));
+  }
+
+  if (!plan.items.length) grid.append(el('p', { class: 'empty' }, 'No traits available for this archetype.'));
   return node;
 }
 
-function renderRulerTraits(app, key) {
-  const { view, build, ctx } = app;
-  const { node, grid } = sectionShell(app, {
-    key, title: 'Ruler traits',
-    count: `${build.rulerTraits.size} selected`,
-    searchable: true,
-  });
-
-  node.querySelector('.section-head').append(
-    el('span', { class: 'count' }, 'only traits the designer offers at creation'),
-  );
-
+function rulerTraitsPlan(app, key) {
+  const { view, build } = app;
   const items = [];
   for (const [id, entity] of view.cat.leader_traits) {
     if (entity.data.starting_ruler_trait !== 'yes') continue;
@@ -781,24 +881,37 @@ function renderRulerTraits(app, key) {
     }
     const classes = arr(entity.data.leader_class?.__list);
     items.push({
-      id, entity, classes,
+      id,
+      entity,
       verdict: { ok: reasons.length === 0, reasons, unknown: [] },
       selected: build.rulerTraits.has(id),
+      cost: num(entity.data.cost, 1),
+      extraNote: classes.length ? `class: ${classes.join(', ')}` : null,
     });
   }
   items.sort((a, b) => Number(b.selected) - Number(a.selected)
     || nameOf(view, a.id).localeCompare(nameOf(view, b.id)));
+  return { count: `${build.rulerTraits.size} selected`, items };
+}
 
-  for (const item of items) {
+function renderRulerTraits(app, key, plan) {
+  const { node, grid } = sectionShell(app, {
+    key, title: 'Ruler traits', count: plan.count, searchable: true,
+  });
+
+  node.querySelector('.section-head').append(
+    el('span', { class: 'count' }, 'only traits the designer offers at creation'),
+  );
+
+  for (const item of plan.items) {
     grid.append(card(app, {
       id: item.id, entity: item.entity, selected: item.selected,
       verdict: item.verdict, category: 'leader_traits',
-      cost: num(item.entity.data.cost, 1),
-      extraNote: item.classes.length ? `class: ${item.classes.join(', ')}` : null,
+      cost: item.cost, extraNote: item.extraNote,
       onPick: () => app.toggleRulerTrait(item.id),
     }));
   }
-  if (!items.length) grid.append(el('p', { class: 'empty' }, 'No starting ruler traits available.'));
+  if (!plan.items.length) grid.append(el('p', { class: 'empty' }, 'No starting ruler traits available.'));
   return node;
 }
 
@@ -1190,36 +1303,60 @@ export const SECTIONS = [
 // section key out by hand, so a filter box cannot end up keyed to a section
 // other than the one it sits in - which is how the ruler-trait filter came to
 // rebuild the Ruler panel on every keystroke and never filter itself.
+//
+// The four card-grid sections also carry a `plan`, which is what makes a
+// rerender cheap: those four are ~95% of the rendering cost, and a single pick
+// usually leaves most of them looking exactly as they did.
 const SECTION_BUILDERS = {
-  identity: (app) => renderIdentity(app),
-  ethics: (app) => renderEthics(app),
-  authority: (app, key) => renderChoice(app, {
-    key, title: 'Authority', category: 'authorities',
-    selectedId: app.build.authority,
-    onPick: (id) => app.set('authority', id),
-  }),
-  origin: (app, key) => renderChoice(app, {
-    key, title: 'Origin', category: 'origins',
-    selectedId: app.build.origin,
-    onPick: (id) => app.set('origin', id),
-  }),
-  civics: (app, key) => renderCivics(app, key),
-  traits: (app, key) => renderSpeciesTraits(app, key),
-  secondary: (app) => renderSecondarySpecies(app),
-  homeworld: (app) => renderHomeworld(app),
-  ruler: (app) => renderRuler(app),
-  rulerTraits: (app, key) => renderRulerTraits(app, key),
+  identity: { build: (app) => renderIdentity(app) },
+  ethics: { build: (app) => renderEthics(app) },
+  authority: { plan: choicePlan, build: renderChoice },
+  origin: { plan: choicePlan, build: renderChoice },
+  civics: { plan: civicsPlan, build: renderCivics },
+  traits: { plan: traitsPlan, build: renderSpeciesTraits },
+  secondary: { build: (app) => renderSecondarySpecies(app) },
+  homeworld: { build: (app) => renderHomeworld(app) },
+  ruler: { build: (app) => renderRuler(app) },
+  rulerTraits: { plan: rulerTraitsPlan, build: renderRulerTraits },
 };
 
+// The signature each section's DOM was last built from. A section whose
+// signature is unchanged is left alone rather than rebuilt.
+const sectionSignatures = new Map();
+
 function buildSection(app, key) {
-  const node = SECTION_BUILDERS[key](app, key);
+  const entry = SECTION_BUILDERS[key];
+  const plan = entry.plan ? entry.plan(app, key) : null;
+  if (plan) sectionSignatures.set(key, planSignature(app, key, plan));
+  else sectionSignatures.delete(key);
+  const node = entry.build(app, key, plan);
   node.id = `sec-${key}`;
   return node;
 }
 
+/** Forget every cached signature, so the next render rebuilds from scratch. */
+export function invalidateSections() { sectionSignatures.clear(); }
+
 export function renderMain(app) {
   const main = document.getElementById('main');
-  main.replaceChildren(...SECTIONS.map(([key]) => buildSection(app, key)));
+  const nodes = SECTIONS.map(([key]) => {
+    const entry = SECTION_BUILDERS[key];
+    if (!entry.plan) return buildSection(app, key);
+
+    const plan = entry.plan(app, key);
+    const signature = planSignature(app, key, plan);
+    const existing = document.getElementById(`sec-${key}`);
+    // Only reuse a node still attached to this #main: anything else means the
+    // DOM was replaced underneath us and the cached signature cannot be trusted.
+    if (existing && existing.parentNode === main && sectionSignatures.get(key) === signature) {
+      return existing;
+    }
+    sectionSignatures.set(key, signature);
+    const node = entry.build(app, key, plan);
+    node.id = `sec-${key}`;
+    return node;
+  });
+  main.replaceChildren(...nodes);
 }
 
 /** Rebuild one section in place, keeping the caret in its search box. */
