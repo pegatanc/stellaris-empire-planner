@@ -1,0 +1,46 @@
+name: verify
+
+# The site has no build step and no dependencies - it is served as-is from the
+# repo - so CI runs exactly the commands a contributor runs locally.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # `node --check` silently passes on a .js file containing ES module
+      # syntax, so the source is fed in as a module on stdin to actually get
+      # parsed. This matters most for main.js and selftest.js: verify.mjs
+      # imports neither (main.js boots the app on import, selftest.js only ever
+      # loads in a browser), so without this a syntax error in either would
+      # reach main unnoticed.
+      - name: Every module parses
+        run: |
+          for f in js/*.js; do
+            node --input-type=module --check < "$f" || { echo "syntax error in $f"; exit 1; }
+          done
+
+      # The extractor has no test suite of its own; this catches a broken edit.
+      - name: The extractor parses
+        run: python3 -m compileall -q tools/
+
+      # 141 checks: the merge logic, the requirement evaluator, the point
+      # budgets, modifier polarity and the empire-file round trip. The checks
+      # that read a local Stellaris install skip themselves when it is not
+      # there, which is always the case on a runner.
+      - name: verify.mjs
+        run: node tools/verify.mjs
