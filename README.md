@@ -124,6 +124,12 @@ civics, 77 origins, 17 ethics, 8 authorities), the mod override behaviour, the
 point budgets, and a cross-check against the empires already saved in your own
 `user_empire_designs_v3.4.txt`.
 
+`.github/workflows/verify.yml` runs `verify.mjs` on every push and pull
+request, along with a syntax check over `js/*.js` and `tools/*.py`. It needs no
+dependencies and no build step. `audit.mjs` is not in CI: it re-reads the
+installed game and mod files, which only exist on your machine. Nor is the
+render self-test, which needs a browser.
+
 `audit.mjs` goes the other way — it re-reads the raw game and mod files and
 compares them against what the planner ships and renders, across every entity
 rather than a sample. It currently reports:
