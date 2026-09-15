@@ -895,8 +895,16 @@ def resolve_icons(entities, loc_single, loc_multi, sprites, gfx):
     return wanted, missing
 
 
-def build_sprite_sheet(wanted, out_png):
-    """Shelf-pack every icon into one PNG. Returns {key: [x, y, w, h]}."""
+def build_sprite_sheet(wanted, out_path):
+    """Shelf-pack every icon into one sheet. Returns {key: [x, y, w, h]}.
+
+    Written as lossless WebP. The sheet is the single biggest thing the site
+    ships and, unlike the JSON, it is already compressed so the server's gzip
+    does nothing for it - roughly 1.97 MB as PNG against about 1.4 MB as WebP,
+    for identical pixels. Lossless rather than quality-tuned on purpose: these are
+    small icons with alpha shown at roughly their stored size, where lossy
+    encoding smears the edges for a couple of hundred KB.
+    """
     try:
         from PIL import Image
     except ImportError:
@@ -949,8 +957,13 @@ def build_sprite_sheet(wanted, out_png):
         px, py, _w, _h = placements[key]
         sheet.paste(img, (px, py))
 
-    out_png.parent.mkdir(parents=True, exist_ok=True)
-    sheet.save(out_png, optimize=True)
+    out_path.parent.mkdir(parents=True, exist_ok=True)
+    sheet.save(out_path, format="WEBP", lossless=True, quality=100, method=6)
+    # The sheet used to be a PNG; drop a leftover so the old one is not served
+    # alongside the new one.
+    legacy = out_path.with_suffix(".png")
+    if legacy != out_path and legacy.exists():
+        legacy.unlink()
     return {k: list(v) for k, v in placements.items()}, (sheet_w, sheet_h)
 
 
@@ -1036,7 +1049,7 @@ def main(argv=None):
         print(f"  ! no icon for {len(keys)} {cat}: {', '.join(sorted(keys)[:6])}"
               + (" ..." if len(keys) > 6 else ""))
     icon_map, sheet_size = build_sprite_sheet(
-        wanted, out_dir.parent / "icons" / "sprite.png")
+        wanted, out_dir.parent / "icons" / "sprite.webp")
     if icon_map:
         print(f"  sheet {sheet_size[0]}x{sheet_size[1]} with {len(icon_map)} cells")
 
@@ -1069,12 +1082,12 @@ def main(argv=None):
     if icon_map:
         total += write_json(
             out_dir / "icons.json",
-            {"sheet": "icons/sprite.png", "size": list(sheet_size), "cells": icon_map},
+            {"sheet": "icons/sprite.webp", "size": list(sheet_size), "cells": icon_map},
             "icon map",
         )
-        png = out_dir.parent / "icons" / "sprite.png"
-        total += png.stat().st_size
-        print(f"  {'sprite sheet':<22} {png.stat().st_size/1024:8.1f} KB  {png.name}")
+        sheet_file = out_dir.parent / "icons" / "sprite.webp"
+        total += sheet_file.stat().st_size
+        print(f"  {'sprite sheet':<22} {sheet_file.stat().st_size/1024:8.1f} KB  {sheet_file.name}")
     print(f"\n  total {total/1024/1024:.2f} MB in {time.time()-started:.1f}s")
     return 0
 

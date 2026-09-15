@@ -98,9 +98,15 @@ python tools/extract.py
 ```
 
 It reads the game directory and `Documents/Paradox Interactive/Stellaris/dlc_load.json`
-for the load order, then writes `data/*.json` and `icons/sprite.png`. Requires
+for the load order, then writes `data/*.json` and `icons/sprite.webp`. Requires
 Python 3 and Pillow (for the `.dds` icons); no other dependencies. Override the
 paths with `--game` and `--userdir` if your install lives somewhere else.
+
+The sheet is written as lossless WebP. It is the single biggest file the site
+ships and, unlike the JSON, it is already compressed, so the server's gzip does
+nothing for it — roughly 1.97 MB as PNG against about 1.4 MB as WebP for
+identical pixels. A repo still holding the old `icons/sprite.png` keeps working;
+re-running the extractor swaps in the WebP and deletes the PNG.
 
 To work on the site locally, serve it with `python tools/serve.py` rather than
 `python -m http.server` — it sends `no-store`, so an edited module actually
@@ -135,6 +141,34 @@ rather than a sample. It currently reports:
 The roller doubles as a fuzz test for the validator: `verify.mjs` rolls 240
 empires across two toggle sets and asserts every one is legal and inside every
 budget.
+
+A third check runs in the browser, because it needs a real DOM:
+
+```
+index.html?selftest=render          # or &seed=7&rounds=500
+```
+
+Picking a civic used to rebuild all ten sections — roughly 12,000 nodes — even
+though a pick usually leaves most of them looking exactly as they were. The
+four card-grid sections now carry a signature of everything their markup
+depends on, and a section whose signature has not moved is left alone. That is
+only safe if the signature is complete: miss an input and the page shows stale
+cards with nothing thrown. So the self-test walks the build through hundreds of
+random mutations and, after each one, asserts the cached DOM is byte-identical
+to a full rebuild. The shuffle is seeded, so a failure reproduces exactly.
+
+Measured in headless Chromium, median of 40 clicks per section:
+
+| Pick | Before | After |
+|---|---|---|
+| Ruler trait | 74 ms | 25 ms |
+| Species trait | 74 ms | 35 ms |
+| Authority | 72 ms | 57 ms |
+| Origin | 75 ms | 61 ms |
+| Civic | 77 ms | 59 ms |
+
+Civics and origins gain least because changing one genuinely changes what the
+others offer, so those sections really do have to be rebuilt.
 
 ## How the merge works
 
@@ -189,7 +223,7 @@ filename.
 
 ## Assets and attribution
 
-Icons in `icons/sprite.png` are converted from the installed game and mod files.
+Icons in `icons/sprite.webp` are converted from the installed game and mod files.
 They remain the property of **Paradox Interactive** and of the respective mod
 authors — Ethics and Civics Classic, Gigastructural Engineering & More,
 Government Variety Pack, Real Space – New Frontiers and Monopolist Crisis Path.
